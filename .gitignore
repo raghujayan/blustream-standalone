@@ -1,0 +1,42 @@
+# Build artifacts
+build/
+*.o
+*.so
+*.dylib
+*.a
+
+# Frame data (large binary files)
+frames/
+*.h264
+*.ppm
+*.jpg
+*.mp4
+
+# Temporary files
+*.tmp
+*.log
+*~
+.DS_Store
+
+# Debug files
+*.dSYM/
+*.gdb_history
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Parameter set files (generated)
+sps.bin
+pps.bin
+sps_pps.bin
+
+# macOS specific
+.AppleDouble
+.LSOverride
+Icon?
+
+# Thumbnails
+._*
