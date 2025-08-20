@@ -32,18 +32,36 @@ BluStream Phase 4 implements a complete video streaming pipeline:
 
 ## Quick Start
 
-### Build Client
+### Build (Platform Auto-Detection)
 ```bash
-g++ -std=c++17 -Icommon/include -I/opt/homebrew/include \
-    client/src/streaming_client.cpp common/src/logger.cpp common/src/error_codes.cpp \
-    -L/opt/homebrew/lib -lavcodec -lavformat -lavutil \
-    -o build/client/streaming_client
+# On macOS - builds client
+make all
+
+# On Linux - builds server  
+make all
+
+# Or explicitly:
+make client  # Build streaming client (macOS)
+make server  # Build streaming server (Linux)
 ```
 
-### Run Client
+### Remote Development Workflow
 ```bash
-# Connect to server (requires SSH tunnel)
+# Set up remote VM (first time only)
+make setup-remote
+
+# Sync code and build server on VM
+make build-remote-server
+
+# On macOS: build and run client
+make client
 ./build/client/streaming_client --save-frames --output-dir frames
+```
+
+### Sync Between Platforms
+```bash
+make sync-to-remote    # Upload local changes to VM
+make sync-from-remote  # Download changes from VM
 ```
 
 ### View Frames

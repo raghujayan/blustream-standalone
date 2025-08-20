@@ -1,0 +1,183 @@
+#pragma once
+
+#include <memory>
+#include <thread>
+#include <atomic>
+#include <vector>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+
+#include "blustream/common/types.h"
+#include "blustream/server/opengl_context.h"
+#include "blustream/server/network_server.h"
+
+// Forward declarations
+struct AVCodecContext;
+struct AVFrame;
+struct AVPacket;
+
+namespace blustream {
+namespace server {
+
+// Forward declarations
+class VDSRenderer;
+class VideoEncoder;
+class ClientConnection;
+
+/**
+ * @brief Streaming server that renders VDS data and streams to clients
+ * 
+ * Pipeline:
+ * 1. Render VDS slice using OpenGL
+ * 2. Encode frame using x264/FFmpeg
+ * 3. Stream encoded frames to connected clients
+ */
+class StreamingServer {
+public:
+    struct Config {
+        // Network
+        int port = 8080;
+        int max_clients = 10;
+        
+        // Rendering
+        int render_width = 1920;
+        int render_height = 1080;
+        float target_fps = 30.0f;
+        
+        // Encoding
+        std::string encoder = "x264";  // "x264", "ffmpeg", "nvenc"
+        int bitrate_kbps = 5000;
+        std::string preset = "fast";   // ultrafast, fast, medium, slow
+        int keyframe_interval = 60;    // GOP size
+        
+        // VDS
+        std::string vds_path;
+        int initial_slice_axis = 2;    // 0=X, 1=Y, 2=Z
+        int initial_slice_index = 32;
+    };
+    
+    StreamingServer();
+    ~StreamingServer();
+    
+    // Server lifecycle
+    bool initialize(const Config& config);
+    bool start();
+    void stop();
+    bool is_running() const { return running_; }
+    
+    // VDS management
+    bool load_vds(const std::string& path);
+    void set_slice_params(int axis, int index);
+    void navigate_slice(int delta);  // Move slice forward/backward
+    
+    // Client management
+    size_t get_client_count() const;
+    std::vector<std::string> get_client_info() const;
+    
+    // Statistics
+    struct Stats {
+        float current_fps;
+        float encoding_time_ms;
+        float render_time_ms;
+        size_t frames_rendered;
+        size_t frames_encoded;
+        size_t frames_dropped;
+        size_t bytes_sent;
+        float bitrate_mbps;
+    };
+    Stats get_stats() const;
+    
+private:
+    // Configuration
+    Config config_;
+    
+    // Components
+    std::unique_ptr<OpenGLContext> gl_context_;
+    std::unique_ptr<NetworkServer> network_server_;
+    std::unique_ptr<AVCodecContext, void(*)(AVCodecContext*)> encoder_context_;
+    std::unique_ptr<AVFrame, void(*)(AVFrame*)> av_frame_;
+    std::unique_ptr<AVPacket, void(*)(AVPacket*)> av_packet_;
+    
+    // VDS (using void* to avoid HueSpace headers here)
+    void* huespace_context_;  // Actually SimpleHueSpace*
+    void* current_vds_;       // Actually Hue::ProxyLib::VDS*
+    
+    // Render loop
+    void render_loop();
+    void encode_and_send_frame(const std::vector<uint8_t>& rgb_data);
+    
+    // Client management
+    void accept_clients_loop();
+    void handle_client(int client_fd);
+    void broadcast_frame(const std::vector<uint8_t>& encoded_data, bool is_keyframe);
+    
+    // Thread management
+    std::atomic<bool> running_;
+    std::thread render_thread_;
+    std::thread accept_thread_;
+    std::vector<std::shared_ptr<ClientConnection>> clients_;
+    mutable std::mutex clients_mutex_;
+    
+    // Frame timing
+    std::chrono::steady_clock::time_point next_frame_time_;
+    std::chrono::microseconds frame_duration_;
+    
+    // Statistics
+    mutable std::mutex stats_mutex_;
+    Stats stats_;
+    std::chrono::steady_clock::time_point stats_start_time_;
+    
+    // Frame buffering
+    std::queue<std::vector<uint8_t>> frame_queue_;
+    std::mutex frame_queue_mutex_;
+    std::condition_variable frame_queue_cv_;
+    
+    // Slice navigation
+    std::atomic<int> current_slice_axis_;
+    std::atomic<int> current_slice_index_;
+    int vds_dimensions_[3];  // width, height, depth
+    
+    // Encoder helpers
+    bool initialize_encoder();
+    void cleanup_encoder();
+    std::vector<uint8_t> encode_frame(const std::vector<uint8_t>& rgb_data);
+    
+    // Utility
+    void update_stats(float render_ms, float encode_ms, size_t bytes_sent);
+    std::vector<uint8_t> convert_rgb_to_yuv420(const std::vector<uint8_t>& rgb_data);
+};
+
+/**
+ * @brief Manages a single client connection
+ */
+class ClientConnection {
+public:
+    ClientConnection(int socket_fd, const std::string& address);
+    ~ClientConnection();
+    
+    bool send_frame(const std::vector<uint8_t>& data);
+    void disconnect();
+    bool is_connected() const { return connected_; }
+    
+    std::string get_info() const;
+    size_t get_bytes_sent() const { return bytes_sent_; }
+    
+private:
+    int socket_fd_;
+    std::string address_;
+    std::atomic<bool> connected_;
+    std::atomic<size_t> bytes_sent_;
+    std::mutex send_mutex_;
+    
+    // Send queue for async sending
+    std::queue<std::vector<uint8_t>> send_queue_;
+    std::mutex queue_mutex_;
+    std::condition_variable queue_cv_;
+    std::thread send_thread_;
+    
+    void send_loop();
+};
+
+} // namespace server
+} // namespace blustream
