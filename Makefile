@@ -46,10 +46,13 @@ FRAMES_DIR = frames
 # Targets
 CLIENT_TARGET = $(CLIENT_BUILD_DIR)/streaming_client
 SERVER_TARGET = $(SERVER_BUILD_DIR)/blustream_phase4_server
+SERVER_4B_TARGET = $(SERVER_BUILD_DIR)/blustream_phase4b_server
+HW_ENCODER_TEST_TARGET = $(SERVER_BUILD_DIR)/test_hardware_encoding
 CLIENT_SRC = client/src/streaming_client.cpp
-SERVER_SRC = server/src/phase4_main.cpp server/src/streaming_server.cpp server/src/opengl_context.cpp server/src/network_server.cpp server/src/vds_manager.cpp
+SERVER_SRC = server/src/phase4_main.cpp server/src/streaming_server.cpp server/src/opengl_context.cpp server/src/network_server.cpp server/src/vds_manager.cpp server/src/hardware_encoder.cpp server/src/streaming_server_hw.cpp
+SERVER_4B_SRC = server/src/phase4b_main.cpp server/src/streaming_server.cpp server/src/opengl_context.cpp server/src/network_server.cpp server/src/vds_manager.cpp server/src/hardware_encoder.cpp
 
-.PHONY: all clean client server test frames-dir sync-to-remote sync-from-remote
+.PHONY: all clean client server server-4b test frames-dir sync-to-remote sync-from-remote test-hw-encoding
 
 all: $(DEFAULT_TARGET)
 
@@ -57,11 +60,21 @@ client: $(CLIENT_TARGET)
 
 server: $(SERVER_TARGET)
 
+server-4b: $(SERVER_4B_TARGET)
+
+test-hw-encoding: $(HW_ENCODER_TEST_TARGET)
+
 $(CLIENT_TARGET): $(CLIENT_SRC) $(COMMON_SRC) | $(CLIENT_BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(CLIENT_SRC) $(COMMON_SRC) $(FFMPEG_LIBS) -o $@
 
 $(SERVER_TARGET): $(SERVER_SRC) $(COMMON_SRC) | $(SERVER_BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SERVER_SRC) $(COMMON_SRC) $(SERVER_LIBS) -o $@
+
+$(SERVER_4B_TARGET): $(SERVER_4B_SRC) $(COMMON_SRC) | $(SERVER_BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SERVER_4B_SRC) $(COMMON_SRC) $(SERVER_LIBS) -o $@
+
+$(HW_ENCODER_TEST_TARGET): server/src/test_hardware_encoding.cpp server/src/hardware_encoder.cpp $(COMMON_SRC) | $(SERVER_BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) server/src/test_hardware_encoding.cpp server/src/hardware_encoder.cpp $(COMMON_SRC) $(SERVER_LIBS) -o $@
 
 $(CLIENT_BUILD_DIR):
 	mkdir -p $(CLIENT_BUILD_DIR)
