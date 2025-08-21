@@ -20,6 +20,7 @@
 
 #include "blustream/common/types.h"
 #include "blustream/common/logger.h"
+#include "blustream/common/debug_config.h"
 
 // FFmpeg for decoding
 extern "C" {
@@ -379,13 +380,18 @@ private:
     }
     
     void process_frame(const uint8_t* data, size_t size) {
-        // Save raw H.264 if requested
+        // Save raw H.264 if requested AND debug I/O is enabled
         if (config_.save_frames) {
-            static int frame_num = 0;
-            std::string filename = config_.output_dir + "/frame_" + 
-                                 std::to_string(frame_num++) + ".h264";
-            std::ofstream file(filename, std::ios::binary);
-            file.write(reinterpret_cast<const char*>(data), size);
+            if (BLUSTREAM_DEBUG_IO_ENABLED()) {
+                BLUSTREAM_DEBUG_IO_PERMIT();
+                static int frame_num = 0;
+                std::string filename = config_.output_dir + "/frame_" + 
+                                     std::to_string(frame_num++) + ".h264";
+                std::ofstream file(filename, std::ios::binary);
+                file.write(reinterpret_cast<const char*>(data), size);
+            } else {
+                BLUSTREAM_DEBUG_IO_BLOCK();
+            }
         }
         
         // Decode if decoder is available
@@ -425,49 +431,54 @@ private:
     }
     
     void process_decoded_frame(AVFrame* frame) {
-        // Save decoded frame as PPM if requested
+        // Save decoded frame as PPM if requested AND debug I/O is enabled
         if (config_.save_frames) {
-            static int decoded_frame_num = 0;
-            
-            // Convert YUV to RGB
-            std::vector<uint8_t> rgb_data(frame->width * frame->height * 3);
-            
-            for (int y = 0; y < frame->height; y++) {
-                for (int x = 0; x < frame->width; x++) {
-                    int y_idx = y * frame->linesize[0] + x;
-                    int uv_idx = (y / 2) * frame->linesize[1] + (x / 2);
-                    
-                    uint8_t Y = frame->data[0][y_idx];
-                    uint8_t U = frame->data[1][uv_idx];
-                    uint8_t V = frame->data[2][uv_idx];
-                    
-                    // YUV to RGB conversion
-                    int C = Y - 16;
-                    int D = U - 128;
-                    int E = V - 128;
-                    
-                    int R = (298 * C + 409 * E + 128) >> 8;
-                    int G = (298 * C - 100 * D - 208 * E + 128) >> 8;
-                    int B = (298 * C + 516 * D + 128) >> 8;
-                    
-                    // Clamp values
-                    R = std::max(0, std::min(255, R));
-                    G = std::max(0, std::min(255, G));
-                    B = std::max(0, std::min(255, B));
-                    
-                    int rgb_idx = (y * frame->width + x) * 3;
-                    rgb_data[rgb_idx + 0] = R;
-                    rgb_data[rgb_idx + 1] = G;
-                    rgb_data[rgb_idx + 2] = B;
+            if (BLUSTREAM_DEBUG_IO_ENABLED()) {
+                BLUSTREAM_DEBUG_IO_PERMIT();
+                static int decoded_frame_num = 0;
+                
+                // Convert YUV to RGB
+                std::vector<uint8_t> rgb_data(frame->width * frame->height * 3);
+                
+                for (int y = 0; y < frame->height; y++) {
+                    for (int x = 0; x < frame->width; x++) {
+                        int y_idx = y * frame->linesize[0] + x;
+                        int uv_idx = (y / 2) * frame->linesize[1] + (x / 2);
+                        
+                        uint8_t Y = frame->data[0][y_idx];
+                        uint8_t U = frame->data[1][uv_idx];
+                        uint8_t V = frame->data[2][uv_idx];
+                        
+                        // YUV to RGB conversion
+                        int C = Y - 16;
+                        int D = U - 128;
+                        int E = V - 128;
+                        
+                        int R = (298 * C + 409 * E + 128) >> 8;
+                        int G = (298 * C - 100 * D - 208 * E + 128) >> 8;
+                        int B = (298 * C + 516 * D + 128) >> 8;
+                        
+                        // Clamp values
+                        R = std::max(0, std::min(255, R));
+                        G = std::max(0, std::min(255, G));
+                        B = std::max(0, std::min(255, B));
+                        
+                        int rgb_idx = (y * frame->width + x) * 3;
+                        rgb_data[rgb_idx + 0] = R;
+                        rgb_data[rgb_idx + 1] = G;
+                        rgb_data[rgb_idx + 2] = B;
+                    }
                 }
+                
+                // Save as PPM
+                std::string filename = config_.output_dir + "/decoded_" + 
+                                     std::to_string(decoded_frame_num++) + ".ppm";
+                std::ofstream file(filename, std::ios::binary);
+                file << "P6\n" << frame->width << " " << frame->height << "\n255\n";
+                file.write(reinterpret_cast<const char*>(rgb_data.data()), rgb_data.size());
+            } else {
+                BLUSTREAM_DEBUG_IO_BLOCK();
             }
-            
-            // Save as PPM
-            std::string filename = config_.output_dir + "/decoded_" + 
-                                 std::to_string(decoded_frame_num++) + ".ppm";
-            std::ofstream file(filename, std::ios::binary);
-            file << "P6\n" << frame->width << " " << frame->height << "\n255\n";
-            file.write(reinterpret_cast<const char*>(rgb_data.data()), rgb_data.size());
         }
     }
     
@@ -556,6 +567,9 @@ int main(int argc, char* argv[]) {
     client.disconnect();
     
     std::cout << "\n✓ Client stopped\n";
+    
+    // Print debug I/O statistics
+    BLUSTREAM_DEBUG_IO_STATS();
     
     return 0;
 }
