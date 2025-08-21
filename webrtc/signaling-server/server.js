@@ -10,6 +10,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const { v4: uuidv4 } = require('uuid');
 const cors = require('cors');
+const VDSFrameService = require('./vds-frame-service');
 
 class BluStreamSignalingServer {
     constructor(port = 3000) {
@@ -27,6 +28,10 @@ class BluStreamSignalingServer {
         this.sessions = new Map();
         this.clients = new Map();
         
+        // VDS Frame Service for real-time seismic data
+        this.vdsService = new VDSFrameService();
+        this.setupVDSService();
+        
         this.setupMiddleware();
         this.setupRoutes();
         this.setupSocketHandlers();
@@ -39,6 +44,73 @@ class BluStreamSignalingServer {
     }
     
     setupRoutes() {
+        // Video streaming endpoints
+        this.app.get('/video/:filename', (req, res) => {
+            const filename = req.params.filename;
+            const videoPath = `/home/rocky/blustream-unified/${filename}`;
+            
+            console.log(`📹 Streaming video: ${filename}`);
+            
+            const fs = require('fs');
+            const path = require('path');
+            
+            if (!fs.existsSync(videoPath)) {
+                return res.status(404).json({ error: 'Video not found' });
+            }
+            
+            const stat = fs.statSync(videoPath);
+            const fileSize = stat.size;
+            const range = req.headers.range;
+            
+            if (range) {
+                const parts = range.replace(/bytes=/, "").split("-");
+                const start = parseInt(parts[0], 10);
+                const end = parts[1] ? parseInt(parts[1], 10) : fileSize-1;
+                const chunksize = (end-start)+1;
+                const file = fs.createReadStream(videoPath, {start, end});
+                const head = {
+                    'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+                    'Accept-Ranges': 'bytes',
+                    'Content-Length': chunksize,
+                    'Content-Type': 'video/mp4',
+                };
+                res.writeHead(206, head);
+                file.pipe(res);
+            } else {
+                const head = {
+                    'Content-Length': fileSize,
+                    'Content-Type': 'video/mp4',
+                };
+                res.writeHead(200, head);
+                fs.createReadStream(videoPath).pipe(res);
+            }
+        });
+        
+        // VDS frame streaming endpoint
+        this.app.get('/vds-frame/:frameNumber', (req, res) => {
+            const fs = require('fs');
+            const frameNumber = parseInt(req.params.frameNumber);
+            const frameFile = `/tmp/blustream-frames/frame_${frameNumber.toString().padStart(6, '0')}.png`;
+            
+            console.log(`🖼️  Serving VDS frame: ${frameNumber}`);
+            
+            if (!fs.existsSync(frameFile)) {
+                return res.status(404).json({ error: 'Frame not found' });
+            }
+            
+            res.sendFile(frameFile);
+        });
+        
+        // VDS service status endpoint
+        this.app.get('/vds-status', (req, res) => {
+            const status = this.vdsService.getStatus();
+            res.json({
+                ...status,
+                uptime: process.uptime(),
+                timestamp: new Date().toISOString()
+            });
+        });
+        
         // Health check endpoint
         this.app.get('/health', (req, res) => {
             res.json({
@@ -95,6 +167,41 @@ class BluStreamSignalingServer {
         });
     }
     
+    /**
+     * Setup VDS Frame Service integration
+     */
+    setupVDSService() {
+        // Handle frame generation events
+        this.vdsService.on('frame-generated', (data) => {
+            // Broadcast frame to all connected clients
+            this.io.emit('vds-frame', {
+                frameNumber: data.frameNumber,
+                frameFile: data.frameData.frameFile,
+                sliceIndex: data.frameData.sliceIndex,
+                animationTime: data.frameData.animationTime,
+                orientation: data.frameData.orientation,
+                stats: data.stats,
+                timestamp: data.timestamp
+            });
+        });
+        
+        this.vdsService.on('service-started', (data) => {
+            console.log('🎬 VDS Frame Service started with config:', data.config);
+            this.io.emit('vds-service-status', { status: 'started', config: data.config });
+        });
+        
+        this.vdsService.on('service-error', (data) => {
+            console.error('❌ VDS Frame Service error:', data.error);
+            this.io.emit('vds-service-status', { status: 'error', error: data.error.message });
+        });
+        
+        this.vdsService.on('client-connected', (data) => {
+            console.log(`📡 VDS client connected: ${data.clientId}`);
+        });
+        
+        console.log('✅ VDS Frame Service integration configured');
+    }
+    
     setupSocketHandlers() {
         this.io.on('connection', (socket) => {
             console.log(`🔗 Client connected: ${socket.id}`);
@@ -128,6 +235,19 @@ class BluStreamSignalingServer {
             // VDS control messages
             socket.on('control-message', (data) => {
                 this.handleControlMessage(socket, data);
+            });
+            
+            // VDS streaming controls
+            socket.on('start-vds-stream', (data) => {
+                this.handleStartVDSStream(socket, data);
+            });
+            
+            socket.on('stop-vds-stream', () => {
+                this.handleStopVDSStream(socket);
+            });
+            
+            socket.on('update-vds-config', (data) => {
+                this.handleUpdateVDSConfig(socket, data);
             });
             
             // Client status updates
@@ -318,6 +438,88 @@ class BluStreamSignalingServer {
         console.log(`👋 Client disconnected: ${socket.id}`);
     }
     
+    /**
+     * Handle VDS streaming start request
+     */
+    handleStartVDSStream(socket, data) {
+        const client = this.clients.get(socket.id);
+        if (!client || !client.sessionId) {
+            socket.emit('error', { message: 'Not in session', code: 'NOT_IN_SESSION' });
+            return;
+        }
+        
+        console.log(`🎬 Starting VDS stream for client: ${socket.id}`);
+        
+        // Add client to VDS service
+        this.vdsService.addClient(socket.id);
+        
+        // Start VDS service if not already running
+        if (!this.vdsService.getStatus().isStreaming) {
+            const vdsConfig = {
+                orientation: data.orientation || 'XZ',
+                frameRate: data.frameRate || 30,
+                resolution: data.resolution || { width: 1920, height: 1080 },
+                quality: data.quality || 'high',
+                animate: data.animate !== false
+            };
+            
+            this.vdsService.startService(vdsConfig).then(() => {
+                socket.emit('vds-stream-started', {
+                    sessionId: client.sessionId,
+                    config: vdsConfig
+                });
+            }).catch(error => {
+                console.error('❌ Failed to start VDS service:', error);
+                socket.emit('error', { 
+                    message: 'Failed to start VDS streaming', 
+                    code: 'VDS_START_FAILED',
+                    error: error.message
+                });
+            });
+        } else {
+            // Service already running, just notify client
+            socket.emit('vds-stream-started', {
+                sessionId: client.sessionId,
+                config: this.vdsService.getStatus().config
+            });
+        }
+    }
+    
+    /**
+     * Handle VDS streaming stop request
+     */
+    handleStopVDSStream(socket) {
+        console.log(`🛑 Stopping VDS stream for client: ${socket.id}`);
+        
+        // Remove client from VDS service
+        this.vdsService.removeClient(socket.id);
+        
+        socket.emit('vds-stream-stopped', {
+            clientId: socket.id
+        });
+    }
+    
+    /**
+     * Handle VDS configuration update
+     */
+    handleUpdateVDSConfig(socket, data) {
+        const client = this.clients.get(socket.id);
+        if (!client || !client.sessionId) {
+            return;
+        }
+        
+        console.log(`⚙️ Updating VDS config for client ${socket.id}:`, data);
+        
+        // Update VDS service configuration
+        this.vdsService.updateConfig(data);
+        
+        // Notify all clients in session about config change
+        this.io.to(client.sessionId).emit('vds-config-updated', {
+            clientId: socket.id,
+            config: data
+        });
+    }
+    
     // Mock SDP answer generation (replace with actual WebRTC integration)
     generateMockAnswer(offerSdp) {
         return `v=0
@@ -343,7 +545,7 @@ a=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
     }
     
     start() {
-        this.server.listen(this.port, () => {
+        this.server.listen(this.port, '0.0.0.0', () => {
             console.log('🚀 BluStream WebRTC Signaling Server started');
             console.log(`📡 Server running on http://localhost:${this.port}`);
             console.log(`🌐 Browser client available at http://localhost:${this.port}`);

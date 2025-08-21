@@ -1,5 +1,5 @@
-# BluStream Phase 4 - Unified Build System with HueSpace Integration
-# Builds client on macOS, server on Linux
+# BluStream Phases 4-5 - Unified Build System with HueSpace Integration
+# Builds client on macOS, server on Linux, WebRTC streaming on both
 
 # Detect platform
 UNAME_S := $(shell uname -s)
@@ -15,7 +15,13 @@ ifeq ($(UNAME_S),Linux)
     HUESPACE_INCLUDES = -I$(HUESPACE_ROOT)/include
     HUESPACE_LIBS = -L$(HUESPACE_ROOT)/lib -lhueproxy -Wl,--rpath,$(HUESPACE_ROOT)/lib
     
+    # WebRTC libraries (Phase 5)
+    WEBRTC_ROOT = /usr/local/webrtc
+    WEBRTC_INCLUDES = -I$(WEBRTC_ROOT)/include
+    WEBRTC_LIBS = -L$(WEBRTC_ROOT)/lib -lwebrtc -lcpprest
+    
     SERVER_LIBS = $(FFMPEG_LIBS) $(OPENGL_LIBS) $(HUESPACE_LIBS) -lpthread
+    WEBRTC_SERVER_LIBS = $(SERVER_LIBS) $(WEBRTC_LIBS)
     DEFAULT_TARGET = server
 endif
 ifeq ($(UNAME_S),Darwin)
@@ -30,9 +36,9 @@ endif
 CXXFLAGS = -std=c++17 -Wall -Wextra -O2
 INCLUDES = -Icommon/include -Iserver/include $(FFMPEG_INCLUDES)
 
-# Add HueSpace includes for server builds
+# Add HueSpace and WebRTC includes for server builds
 ifeq ($(PLATFORM),linux)
-    INCLUDES += $(HUESPACE_INCLUDES)
+    INCLUDES += $(HUESPACE_INCLUDES) $(WEBRTC_INCLUDES)
 endif
 
 COMMON_SRC = common/src/logger.cpp common/src/error_codes.cpp
@@ -47,12 +53,14 @@ FRAMES_DIR = frames
 CLIENT_TARGET = $(CLIENT_BUILD_DIR)/streaming_client
 SERVER_TARGET = $(SERVER_BUILD_DIR)/blustream_phase4_server
 SERVER_4B_TARGET = $(SERVER_BUILD_DIR)/blustream_phase4b_server
+SERVER_5_TARGET = $(SERVER_BUILD_DIR)/blustream_phase5_server
 HW_ENCODER_TEST_TARGET = $(SERVER_BUILD_DIR)/test_hardware_encoding
 CLIENT_SRC = client/src/streaming_client.cpp
 SERVER_SRC = server/src/phase4_main.cpp server/src/streaming_server.cpp server/src/opengl_context.cpp server/src/network_server.cpp server/src/vds_manager.cpp server/src/hardware_encoder.cpp server/src/streaming_server_hw.cpp
 SERVER_4B_SRC = server/src/phase4b_main.cpp server/src/streaming_server.cpp server/src/opengl_context.cpp server/src/network_server.cpp server/src/vds_manager.cpp server/src/hardware_encoder.cpp
+SERVER_5_SRC = server/src/phase5_main.cpp server/src/webrtc_server.cpp server/src/webrtc_session.cpp server/src/vds_manager.cpp server/src/hardware_encoder.cpp
 
-.PHONY: all clean client server server-4b test frames-dir sync-to-remote sync-from-remote test-hw-encoding
+.PHONY: all clean client server server-4b server-5 test frames-dir sync-to-remote sync-from-remote test-hw-encoding
 
 all: $(DEFAULT_TARGET)
 
@@ -61,6 +69,8 @@ client: $(CLIENT_TARGET)
 server: $(SERVER_TARGET)
 
 server-4b: $(SERVER_4B_TARGET)
+
+server-5: $(SERVER_5_TARGET)
 
 test-hw-encoding: $(HW_ENCODER_TEST_TARGET)
 
@@ -72,6 +82,9 @@ $(SERVER_TARGET): $(SERVER_SRC) $(COMMON_SRC) | $(SERVER_BUILD_DIR)
 
 $(SERVER_4B_TARGET): $(SERVER_4B_SRC) $(COMMON_SRC) | $(SERVER_BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SERVER_4B_SRC) $(COMMON_SRC) $(SERVER_LIBS) -o $@
+
+$(SERVER_5_TARGET): $(SERVER_5_SRC) $(COMMON_SRC) | $(SERVER_BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SERVER_5_SRC) $(COMMON_SRC) $(WEBRTC_SERVER_LIBS) -o $@
 
 $(HW_ENCODER_TEST_TARGET): server/src/test_hardware_encoding.cpp server/src/hardware_encoder.cpp $(COMMON_SRC) | $(SERVER_BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) server/src/test_hardware_encoding.cpp server/src/hardware_encoder.cpp $(COMMON_SRC) $(SERVER_LIBS) -o $@
@@ -137,6 +150,10 @@ build-remote-server: sync-to-remote
 	@echo "🏗️  Building server on remote VM..."
 	ssh -i $(SSH_KEY) $(REMOTE_HOST) "cd $(REMOTE_DIR) && make server"
 
+build-remote-server-5: sync-to-remote
+	@echo "🏗️  Building Phase 5 WebRTC server on remote VM..."
+	ssh -i $(SSH_KEY) $(REMOTE_HOST) "cd $(REMOTE_DIR) && make server-5"
+
 test-remote-connection:
 	@echo "🔗 Testing connection to remote VM..."
 	ssh -i $(SSH_KEY) $(REMOTE_HOST) "echo '✅ Connected to' \$$(hostname) \$$(uname -a)"
@@ -147,13 +164,16 @@ setup-remote:
 	$(MAKE) sync-to-remote
 
 help:
-	@echo "BluStream Phase 4 Unified Build System"
+	@echo "BluStream Phases 4-5 Unified Build System"
 	@echo "Platform: $(PLATFORM)"
 	@echo ""
 	@echo "Build Targets:"
 	@echo "  all               - Build for current platform ($(DEFAULT_TARGET))"
 	@echo "  client            - Build streaming client (macOS)"
-	@echo "  server            - Build streaming server (Linux)"
+	@echo "  server            - Build Phase 4 streaming server (Linux)"
+	@echo "  server-4b         - Build Phase 4B hardware-accelerated server (Linux)"
+	@echo "  server-5          - Build Phase 5 WebRTC server (Linux)"
+	@echo "  test-hw-encoding  - Build hardware encoding test (Linux)"
 	@echo "  clean             - Remove build artifacts"
 	@echo "  debug             - Build with debug symbols"
 	@echo ""
@@ -165,7 +185,8 @@ help:
 	@echo "Remote Development:"
 	@echo "  sync-to-remote    - Upload source to remote VM"
 	@echo "  sync-from-remote  - Download from remote VM" 
-	@echo "  build-remote-server - Sync and build server on VM"
+	@echo "  build-remote-server - Sync and build Phase 4 server on VM"
+	@echo "  build-remote-server-5 - Sync and build Phase 5 WebRTC server on VM"
 	@echo "  test-remote-connection - Test SSH connection"
 	@echo "  setup-remote      - Initialize remote directory"
 	@echo ""

@@ -42,12 +42,21 @@
 
         <!-- Video Container -->
         <main class="video-container">
+            <canvas 
+                id="seismic-canvas" 
+                class="seismic-canvas" 
+                width="1920" 
+                height="1080"
+                style="width: 100%; height: 100%; background: #000;">
+                Your browser does not support canvas.
+            </canvas>
             <video 
                 id="seismic-video" 
                 class="seismic-video" 
                 autoplay 
                 muted 
                 playsinline
+                style="display: none;"
                 poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23000'/%3E%3Ctext x='50' y='50' font-size='12' fill='%23666' text-anchor='middle' dy='.3em'%3ESeismic Data%3C/text%3E%3C/svg%3E">
             </video>
             
@@ -198,7 +207,7 @@
             <div class="modal-body">
                 <div class="setting-group">
                     <label for="server-url">Signaling Server URL:</label>
-                    <input type="text" id="server-url" value="ws://localhost:3000" class="text-input">
+                    <input type="text" id="server-url" value="http://localhost:3005" class="text-input">
                 </div>
                 <div class="setting-group">
                     <label for="session-id">Session ID:</label>
@@ -269,7 +278,8 @@
     </div>
 
     <!-- Scripts -->
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
     <script src="blustream-webrtc.js"></script>
     <script src="app.js"></script>
 </body>

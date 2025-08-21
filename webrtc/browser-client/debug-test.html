@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebRTC Debug Test</title>
+</head>
+<body>
+    <h1>BluStream WebRTC Debug Test</h1>
+    <div id="status">Initializing...</div>
+    <div id="log"></div>
+    
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
+    
+    <script>
+        const statusDiv = document.getElementById('status');
+        const logDiv = document.getElementById('log');
+        
+        function log(message) {
+            console.log(message);
+            logDiv.innerHTML += message + '<br>';
+        }
+        
+        function updateStatus(status) {
+            statusDiv.textContent = status;
+            log(`Status: ${status}`);
+        }
+        
+        updateStatus('Connecting to WebRTC bridge...');
+        
+        // Test socket.io connection
+        const socket = io('http://localhost:3005', {
+            transports: ['websocket', 'polling']
+        });
+        
+        socket.on('connect', () => {
+            updateStatus('Connected to signaling server');
+            log(`Socket ID: ${socket.id}`);
+            
+            // Start WebRTC stream
+            socket.emit('start-webrtc-stream', {
+                sessionId: 'browser-test'
+            });
+        });
+        
+        socket.on('disconnect', () => {
+            updateStatus('Disconnected from signaling server');
+        });
+        
+        socket.on('webrtc-offer', (data) => {
+            log('Received WebRTC offer');
+            updateStatus('Setting up WebRTC peer...');
+            
+            // Create simple-peer connection
+            const peer = new SimplePeer({
+                initiator: false,
+                trickle: true,
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' }
+                    ]
+                }
+            });
+            
+            peer.on('signal', (signalData) => {
+                log('Sending WebRTC answer');
+                socket.emit('webrtc-answer', {
+                    sessionId: 'browser-test',
+                    answer: signalData
+                });
+            });
+            
+            peer.on('connect', () => {
+                updateStatus('WebRTC connected!');
+                log('🚀 WebRTC peer connected!');
+            });
+            
+            peer.on('data', (data) => {
+                log(`Received data: ${data.length} bytes`);
+            });
+            
+            peer.on('error', (error) => {
+                log(`WebRTC error: ${error.message}`);
+                updateStatus('WebRTC error');
+            });
+            
+            // Signal the offer
+            peer.signal(data.offer);
+        });
+        
+        socket.on('webrtc-error', (data) => {
+            log(`WebRTC error: ${data.error}`);
+            updateStatus('WebRTC error');
+        });
+        
+        socket.on('connect_error', (error) => {
+            log(`Connection error: ${error.message}`);
+            updateStatus('Connection failed');
+        });
+    </script>
+</body>
+</html>
