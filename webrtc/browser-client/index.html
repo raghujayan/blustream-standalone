@@ -42,12 +42,20 @@
 
         <!-- Video Container -->
         <main class="video-container">
+            <!-- VTK.js 3D Seismic Visualization -->
+            <div 
+                id="vtk-container" 
+                class="vtk-container" 
+                style="width: 100%; height: 100%; background: #000;">
+            </div>
+            
+            <!-- Canvas fallback for seismic visualization -->
             <canvas 
                 id="seismic-canvas" 
                 class="seismic-canvas" 
                 width="1920" 
                 height="1080"
-                style="width: 100%; height: 100%; background: #000;">
+                style="width: 100%; height: 100%; background: #000; display: none;">
                 Your browser does not support canvas.
             </canvas>
             <video 
@@ -280,6 +288,7 @@
     <!-- Scripts -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vtk.js@30.0.0/dist/vtk.js"></script>
     <script src="blustream-webrtc.js"></script>
     <script src="app.js"></script>
 </body>

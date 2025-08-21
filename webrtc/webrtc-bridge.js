@@ -280,22 +280,63 @@ class BluStreamWebRTCBridge {
     
     processH264ForWebRTC(session, h264Data) {
         try {
+            console.log(`📊 Processing H.264 data: ${h264Data.length} bytes for session ${session.id}`);
+            
             // Accumulate H.264 data
             session.h264Buffer = Buffer.concat([session.h264Buffer, h264Data]);
             
-            // Send H.264 frames via WebRTC data channel
+            // Send H.264 data directly - let browser handle processing
             if (session.webrtcPeer && session.webrtcPeer.connected) {
-                // For superperformance, we send the H.264 data directly
+                // Send raw H.264 data - browser will process it
                 session.webrtcPeer.send(h264Data);
+                console.log(`📤 Sent H.264 data to browser: ${h264Data.length} bytes`);
                 
                 // Update frame stats
                 session.frameCount = (session.frameCount || 0) + 1;
                 session.lastFrameTime = Date.now();
+            } else {
+                console.log(`⚠️ WebRTC peer not connected for session ${session.id}`);
             }
             
         } catch (error) {
             console.error(`❌ Error processing H.264 for WebRTC session ${session.id}:`, error);
         }
+    }
+    
+    extractSeismicDataFromH264(h264Data) {
+        // Extract seismic amplitude data from H.264 encoded stream
+        // This simulates parsing real seismic amplitudes from the Onnia VDS data
+        
+        const amplitudes = [];
+        const traceCount = 512; // Typical seismic trace count
+        const samplesPerTrace = 1600; // Based on Onnia VDS dimensions
+        
+        // Parse H.264 data to extract seismic amplitudes
+        // In a real implementation, this would decode the H.264 frames
+        // and extract the actual seismic pixel values
+        for (let trace = 0; trace < traceCount; trace++) {
+            const traceData = [];
+            for (let sample = 0; sample < samplesPerTrace; sample++) {
+                // Extract amplitude from H.264 data (simplified)
+                const byteIndex = (trace * samplesPerTrace + sample) % h264Data.length;
+                const amplitude = h264Data[byteIndex] - 128; // Convert to signed amplitude
+                traceData.push(amplitude);
+            }
+            amplitudes.push(traceData);
+        }
+        
+        return {
+            amplitudes,
+            traceCount,
+            samplesPerTrace,
+            sampleRate: 4000, // Hz, typical seismic sample rate
+            timeRange: [0, samplesPerTrace / 4000], // Time range in seconds
+            spatialExtent: {
+                inline: { min: 0, max: 1408 },
+                crossline: { min: 0, max: 5701 },
+                time: { min: 0, max: 1600 }
+            }
+        };
     }
     
     processGStreamerOutput(session, data) {
