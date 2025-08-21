@@ -1,0 +1,1377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BluStream Phase 5 - 3D Seismic Scene</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #000;
+            color: #ffffff;
+            overflow: hidden;
+        }
+        
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+        
+        .controls-panel {
+            width: 300px;
+            background: #1a1a1a;
+            border-right: 1px solid #333;
+            padding: 20px;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+        
+        .scene-container {
+            flex: 1;
+            position: relative;
+            background: #000;
+        }
+        
+        #vtk-container {
+            width: 100%;
+            height: 100%;
+            background: #000;
+        }
+        
+        .header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px 20px;
+            z-index: 100;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .title {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #fff;
+        }
+        
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9em;
+        }
+        
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #dc3545;
+        }
+        
+        .status-indicator.connected {
+            background: #28a745;
+        }
+        
+        .control-group {
+            margin-bottom: 25px;
+        }
+        
+        .control-group h3 {
+            font-size: 1em;
+            margin-bottom: 15px;
+            color: #ffd700;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+        
+        .control-item {
+            margin-bottom: 15px;
+        }
+        
+        .control-label {
+            display: block;
+            font-size: 0.9em;
+            margin-bottom: 8px;
+            color: #ccc;
+        }
+        
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #333;
+            outline: none;
+            appearance: none;
+        }
+        
+        .slider::-webkit-slider-thumb {
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #00bcd4;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #00bcd4;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            font-size: 0.8em;
+        }
+        
+        .info-item {
+            background: #2a2a2a;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #333;
+        }
+        
+        .info-label {
+            color: #999;
+            font-size: 0.7em;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+        
+        .info-value {
+            color: #fff;
+            font-weight: 600;
+            font-size: 1.1em;
+        }
+        
+        .dimensions-info {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            border: 1px solid #333;
+        }
+        
+        .view-controls {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #333;
+        }
+        
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        
+        .control-btn {
+            background: #333;
+            color: #fff;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: background 0.2s;
+        }
+        
+        .control-btn:hover {
+            background: #555;
+        }
+        
+        .control-btn.active {
+            background: #00bcd4;
+            color: #000;
+        }
+        
+        .stats {
+            margin-top: 15px;
+            font-size: 0.75em;
+            color: #666;
+            line-height: 1.4;
+        }
+        
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+        }
+        
+        .loading-content {
+            text-align: center;
+            color: #fff;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #333;
+            border-top: 4px solid #00bcd4;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .slice-info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 6px;
+            font-size: 0.9em;
+            border: 1px solid #333;
+            max-width: 300px;
+        }
+        
+        .slice-info h4 {
+            color: #00bcd4;
+            margin-bottom: 8px;
+        }
+        
+        .amplitude-display {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 6px;
+            font-size: 0.9em;
+            border: 1px solid #333;
+            min-width: 200px;
+        }
+        
+        .error-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(220, 53, 69, 0.9);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            z-index: 300;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Controls Panel -->
+        <div class="controls-panel">
+            <div class="control-group">
+                <h3>🎯 3D Slice Navigation</h3>
+                
+                <div class="control-item">
+                    <label class="control-label">Inline (Y-axis): <span id="inline-value">512</span></label>
+                    <input type="range" id="inline-slider" class="slider" min="0" max="1023" value="512">
+                </div>
+                
+                <div class="control-item">
+                    <label class="control-label">Crossline (X-axis): <span id="crossline-value">256</span></label>
+                    <input type="range" id="crossline-slider" class="slider" min="0" max="511" value="256">
+                </div>
+                
+                <div class="control-item">
+                    <label class="control-label">Time Slice (Z-axis): <span id="timeslice-value">256</span></label>
+                    <input type="range" id="timeslice-slider" class="slider" min="0" max="511" value="256">
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <h3>🎮 3D View Controls</h3>
+                <div class="view-controls">
+                    <div class="button-group">
+                        <button class="control-btn" id="reset-camera">Reset View</button>
+                        <button class="control-btn" id="toggle-slices">Toggle Slices</button>
+                        <button class="control-btn" id="toggle-wireframe">Wireframe</button>
+                        <button class="control-btn" id="toggle-axes">Show Axes</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <h3>🎨 Seismic Interpretation</h3>
+                
+                <div class="control-item">
+                    <label class="control-label">Amplitude Range: <span id="amplitude-range-value">Full</span></label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="range" id="amplitude-min-slider" class="slider" min="0" max="100" value="0" style="flex: 1;">
+                        <input type="range" id="amplitude-max-slider" class="slider" min="0" max="100" value="100" style="flex: 1;">
+                    </div>
+                    <div style="font-size: 0.8em; color: #888; display: flex; justify-content: space-between;">
+                        <span>Min: <span id="amp-min-display">28.0</span></span>
+                        <span>Max: <span id="amp-max-display">252.0</span></span>
+                    </div>
+                </div>
+                
+                <div class="control-item">
+                    <label class="control-label">Slice Opacity: <span id="opacity-value">90%</span></label>
+                    <input type="range" id="opacity-slider" class="slider" min="10" max="100" value="90">
+                </div>
+                
+                <div class="control-item">
+                    <label class="control-label">Colormap Type:</label>
+                    <select id="colormap-select" style="width: 100%; padding: 5px; background: #333; color: #fff; border: 1px solid #555;">
+                        <option value="seismic">Seismic (Blue-White-Red)</option>
+                        <option value="grayscale">Grayscale</option>
+                        <option value="spectral">Spectral</option>
+                        <option value="viridis">Viridis</option>
+                    </select>
+                </div>
+                
+                <div class="control-item">
+                    <label class="control-label">Texture Quality:</label>
+                    <select id="quality-select" style="width: 100%; padding: 5px; background: #333; color: #fff; border: 1px solid #555;">
+                        <option value="high">High (Bilinear)</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low (Fastest)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <h3>📊 Amplitude Range</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Min Amplitude</div>
+                        <div class="info-value" id="min-amplitude">28.0</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Max Amplitude</div>
+                        <div class="info-value" id="max-amplitude">252.0</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <h3>📐 VDS Dimensions</h3>
+                <div class="dimensions-info">
+                    <div><strong>Width (X):</strong> <span id="vds-width">512</span> crosslines</div>
+                    <div><strong>Height (Y):</strong> <span id="vds-height">1024</span> inlines</div>
+                    <div><strong>Depth (Z):</strong> <span id="vds-depth">512</span> time samples</div>
+                    <div style="margin-top: 10px; color: #00bcd4; font-weight: 600;">
+                        🗂️ Real Onnia VDS Data
+                    </div>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <h3>🔗 Connection Info</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">WebSocket</div>
+                        <div class="info-value" id="ws-status">Connecting...</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Data Updates</div>
+                        <div class="info-value" id="update-count">0</div>
+                    </div>
+                </div>
+                
+                <div class="stats">
+                    <div>Last Update: <span id="last-update">--</span></div>
+                    <div>Mouse Position: <span id="mouse-pos">--</span></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 3D Scene Container -->
+        <div class="scene-container">
+            <div class="header">
+                <div class="title">🎬 BluStream Phase 5 - Interactive 3D Seismic Scene</div>
+                <div class="connection-status">
+                    <div class="status-indicator" id="connection-indicator"></div>
+                    <span id="connection-text">Connecting...</span>
+                </div>
+            </div>
+            
+            <!-- VTK.js 3D Container -->
+            <div id="vtk-container"></div>
+            
+            <!-- Slice Information -->
+            <div class="slice-info">
+                <h4>Current Slices</h4>
+                <div>Inline: <span id="current-inline">512</span></div>
+                <div>Crossline: <span id="current-crossline">256</span></div>
+                <div>Timeslice: <span id="current-timeslice">256</span></div>
+            </div>
+            
+            <!-- Amplitude Display -->
+            <div class="amplitude-display">
+                <div><strong>Amplitude:</strong> <span id="amplitude-value">--</span></div>
+                <div><strong>Position:</strong> <span id="position-value">--</span></div>
+            </div>
+            
+            <!-- Loading Overlay -->
+            <div class="loading-overlay" id="loading-overlay">
+                <div class="loading-content">
+                    <div class="spinner"></div>
+                    <div>Loading VTK.js 3D Scene...</div>
+                    <div style="margin-top: 10px; font-size: 0.9em; color: #ccc;">
+                        Initializing seismic volume renderer
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Error Message -->
+            <div class="error-message hidden" id="error-message">
+                <h3>⚠️ VTK.js Not Available</h3>
+                <p>3D visualization requires VTK.js library.</p>
+                <p>Please check your internet connection.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- VTK.js Library (local copy) -->
+    <script src="vtk.js"></script>
+    
+    <script>
+        // 3D Seismic Scene Application
+        class Seismic3DScene {
+            constructor() {
+                this.ws = null;
+                this.vtkInitialized = false;
+                this.renderWindow = null;
+                this.renderer = null;
+                this.sliceActors = {
+                    inline: null,
+                    crossline: null,
+                    timeslice: null
+                };
+                this.currentData = {
+                    inline: null,
+                    crossline: null,
+                    timeslice: null
+                };
+                this.dimensions = {
+                    width: 512,
+                    height: 1024,
+                    depth: 512
+                };
+                this.updateCount = 0;
+                this.showSlices = true;
+                this.showWireframe = false;
+                this.showAxes = true;
+                
+                this.initializeElements();
+                this.initializeSliders();
+                this.initializeVTK();
+                this.connect();
+            }
+            
+            initializeElements() {
+                // Status elements
+                this.statusElements = {
+                    connection: document.getElementById('connection-indicator'),
+                    connectionText: document.getElementById('connection-text'),
+                    wsStatus: document.getElementById('ws-status'),
+                    updateCount: document.getElementById('update-count'),
+                    lastUpdate: document.getElementById('last-update'),
+                    minAmplitude: document.getElementById('min-amplitude'),
+                    maxAmplitude: document.getElementById('max-amplitude'),
+                    mousePos: document.getElementById('mouse-pos'),
+                    amplitudeValue: document.getElementById('amplitude-value'),
+                    positionValue: document.getElementById('position-value')
+                };
+                
+                // Current slice displays
+                this.sliceDisplays = {
+                    inline: document.getElementById('current-inline'),
+                    crossline: document.getElementById('current-crossline'),
+                    timeslice: document.getElementById('current-timeslice')
+                };
+                
+                // Setup control buttons
+                document.getElementById('reset-camera').addEventListener('click', () => this.resetCamera());
+                document.getElementById('toggle-slices').addEventListener('click', () => this.toggleSlices());
+                document.getElementById('toggle-wireframe').addEventListener('click', () => this.toggleWireframe());
+                document.getElementById('toggle-axes').addEventListener('click', () => this.toggleAxes());
+                
+                // Setup seismic interpretation controls
+                this.setupSeismicControls();
+            }
+            
+            initializeSliders() {
+                this.sliders = {
+                    inline: document.getElementById('inline-slider'),
+                    crossline: document.getElementById('crossline-slider'),
+                    timeslice: document.getElementById('timeslice-slider')
+                };
+                
+                this.sliderValues = {
+                    inline: document.getElementById('inline-value'),
+                    crossline: document.getElementById('crossline-value'),
+                    timeslice: document.getElementById('timeslice-value')
+                };
+                
+                // Set up slider event listeners
+                Object.keys(this.sliders).forEach(key => {
+                    this.sliders[key].addEventListener('input', (e) => {
+                        const value = parseInt(e.target.value);
+                        this.sliderValues[key].textContent = value;
+                        this.sliceDisplays[key].textContent = value;
+                        this.sendSliceUpdate(key, value);
+                    });
+                });
+            }
+            
+            initializeVTK() {
+                console.log('🎨 Initializing VTK.js 3D scene...');
+                
+                // Wait for VTK.js to load with extended timeout
+                const checkVTK = () => {
+                    if (typeof vtk === 'undefined' || !vtk.Common || !vtk.Common.Core) {
+                        return false;
+                    }
+                    return true;
+                };
+                
+                let attempts = 0;
+                const maxAttempts = 100; // 10 seconds timeout (more time for slow networks)
+                
+                const initWhenReady = () => {
+                    if (checkVTK()) {
+                        console.log('✅ VTK.js loaded successfully, initializing 3D scene...');
+                        try {
+                            this.setupVTKScene();
+                        } catch (error) {
+                            console.error('❌ Error setting up VTK scene:', error);
+                            document.getElementById('error-message').innerHTML = 
+                                `VTK.js Error: ${error.message}<br>Please refresh the page.`;
+                            document.getElementById('error-message').classList.remove('hidden');
+                            document.getElementById('loading-overlay').classList.add('hidden');
+                        }
+                    } else if (attempts < maxAttempts) {
+                        attempts++;
+                        if (attempts % 10 === 0) {
+                            console.log(`⏳ Still waiting for VTK.js... (${attempts}/${maxAttempts})`);
+                        }
+                        setTimeout(initWhenReady, 100);
+                    } else {
+                        console.error('❌ VTK.js failed to load after 10 seconds');
+                        document.getElementById('error-message').innerHTML = 
+                            'VTK.js failed to load. Please check your internet connection and refresh the page.';
+                        document.getElementById('error-message').classList.remove('hidden');
+                        document.getElementById('loading-overlay').classList.add('hidden');
+                    }
+                };
+                
+                // Start checking immediately, but also set up a window load listener
+                initWhenReady();
+                
+                // Also try when window is fully loaded
+                if (document.readyState === 'loading') {
+                    window.addEventListener('load', () => {
+                        setTimeout(() => {
+                            if (!this.vtkInitialized && checkVTK()) {
+                                console.log('✅ VTK.js detected on window load, initializing...');
+                                this.setupVTKScene();
+                            }
+                        }, 500);
+                    });
+                }
+            }
+            
+            setupVTKScene() {
+                if (this.vtkInitialized) {
+                    console.log('⚠️ VTK.js already initialized, skipping...');
+                    return;
+                }
+                
+                try {
+                    console.log('🎨 Setting up VTK.js scene...');
+                    this.vtkInitialized = true;
+                    
+                    // Create full screen render window
+                    this.renderWindow = vtk.Rendering.Misc.vtkFullScreenRenderWindow.newInstance({
+                        container: document.getElementById('vtk-container'),
+                        background: [0.05, 0.05, 0.1] // Dark blue background
+                    });
+                    
+                    this.renderer = this.renderWindow.getRenderer();
+                    
+                    // Set up camera for 3D seismic viewing
+                    const camera = this.renderer.getActiveCamera();
+                    camera.setPosition(800, -600, 400);
+                    camera.setFocalPoint(256, 512, 256);
+                    camera.setViewUp(0, 0, 1);
+                    
+                    // Create coordinate axes
+                    this.createAxes();
+                    
+                    // Enable mouse interaction
+                    const interactor = this.renderWindow.getInteractor();
+                    interactor.onMouseMove((event) => {
+                        this.onMouseMove(event);
+                    });
+                    
+                    // Initial render
+                    this.renderWindow.getRenderWindow().render();
+                    
+                    this.vtkInitialized = true;
+                    document.getElementById('loading-overlay').classList.add('hidden');
+                    
+                    console.log('✅ VTK.js 3D scene initialized successfully');
+                    
+                } catch (error) {
+                    console.error('❌ Failed to setup VTK.js scene:', error);
+                    document.getElementById('error-message').classList.remove('hidden');
+                    document.getElementById('loading-overlay').classList.add('hidden');
+                }
+            }
+            
+            createAxes() {
+                try {
+                    // Create simple coordinate axes using lines
+                    const polyData = vtk.Common.DataModel.vtkPolyData.newInstance();
+                    const points = vtk.Common.Core.vtkPoints.newInstance();
+                    const lines = vtk.Common.Core.vtkCellArray.newInstance();
+                    
+                    // Add origin and axis endpoints
+                    points.setData(new Float32Array([
+                        0, 0, 0,      // Origin
+                        500, 0, 0,    // X axis
+                        0, 500, 0,    // Y axis  
+                        0, 0, 500     // Z axis
+                    ]));
+                    
+                    // Create lines from origin to each axis
+                    lines.insertNextCell([2, 0, 1]); // X axis line
+                    lines.insertNextCell([2, 0, 2]); // Y axis line
+                    lines.insertNextCell([2, 0, 3]); // Z axis line
+                    
+                    polyData.setPoints(points);
+                    polyData.setLines(lines);
+                    
+                    // Create mapper and actor
+                    const mapper = vtk.Rendering.Core.vtkMapper.newInstance();
+                    mapper.setInputData(polyData);
+                    
+                    const actor = vtk.Rendering.Core.vtkActor.newInstance();
+                    actor.setMapper(mapper);
+                    actor.getProperty().setColor(0.8, 0.8, 0.8);
+                    actor.getProperty().setLineWidth(2);
+                    
+                    this.renderer.addActor(actor);
+                    this.axesActor = actor;
+                    
+                    console.log('✅ Coordinate axes created');
+                } catch (error) {
+                    console.error('❌ Failed to create axes:', error);
+                }
+            }
+            
+            connect() {
+                const wsUrl = 'ws://localhost:3010';
+                console.log('🔌 Connecting to seismic amplitude server:', wsUrl);
+                
+                this.ws = new WebSocket(wsUrl);
+                
+                this.ws.onopen = () => {
+                    console.log('✅ Connected to seismic amplitude server');
+                    this.updateConnectionStatus(true);
+                    
+                    // Request initial data
+                    this.ws.send(JSON.stringify({
+                        type: 'get_dimensions'
+                    }));
+                };
+                
+                this.ws.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        this.handleMessage(message);
+                    } catch (err) {
+                        console.error('❌ Error parsing message:', err);
+                    }
+                };
+                
+                this.ws.onclose = () => {
+                    console.log('🔌 Connection closed');
+                    this.updateConnectionStatus(false);
+                    
+                    // Attempt to reconnect after 3 seconds
+                    setTimeout(() => {
+                        this.connect();
+                    }, 3000);
+                };
+                
+                this.ws.onerror = (err) => {
+                    console.error('❌ WebSocket error:', err);
+                    this.updateConnectionStatus(false);
+                };
+            }
+            
+            handleMessage(message) {
+                this.updateCount++;
+                this.statusElements.updateCount.textContent = this.updateCount;
+                this.statusElements.lastUpdate.textContent = new Date().toLocaleTimeString();
+                
+                switch (message.type) {
+                    case 'amplitude_data':
+                        this.handleAmplitudeData(message.data);
+                        break;
+                        
+                    case 'dimensions':
+                        this.handleDimensions(message.data);
+                        break;
+                        
+                    default:
+                        console.log('❓ Unknown message type:', message.type);
+                }
+            }
+            
+            handleAmplitudeData(data) {
+                if (!this.vtkInitialized) return;
+                
+                // Update current data and slice positions
+                this.currentData = {
+                    inline: data.inline,
+                    crossline: data.crossline,
+                    timeslice: data.timeslice
+                };
+                
+                // Store current slice positions for intersection
+                this.currentSlicePositions = data.currentSlices || {
+                    inline: Math.floor(this.dimensions.height / 2),
+                    crossline: Math.floor(this.dimensions.width / 2),
+                    timeslice: Math.floor(this.dimensions.depth / 2)
+                };
+                
+                console.log('📍 Current slice positions:', this.currentSlicePositions);
+                
+                // Update amplitude range display
+                if (data.inline) {
+                    this.statusElements.minAmplitude.textContent = data.inline.minValue.toFixed(1);
+                    this.statusElements.maxAmplitude.textContent = data.inline.maxValue.toFixed(1);
+                }
+                
+                // Create/update 3D slice planes
+                this.create3DSlices();
+                
+                console.log('📊 Updated 3D scene with real VDS amplitude data');
+            }
+            
+            create3DSlices() {
+                console.log('🎬 create3DSlices called');
+                console.log('📊 Renderer exists:', !!this.renderer);
+                console.log('📊 Current data:', this.currentData);
+                
+                if (!this.renderer) {
+                    console.error('❌ No renderer available');
+                    return;
+                }
+                
+                // Remove existing slice actors
+                Object.values(this.sliceActors).forEach(actor => {
+                    if (actor) {
+                        console.log('🗑️ Removing existing actor');
+                        this.renderer.removeActor(actor);
+                    }
+                });
+                
+                // Create bounding box to show the data volume
+                console.log('📦 Creating data volume bounding box...');
+                const boxSource = vtk.Filters.Sources.vtkCubeSource.newInstance({
+                    xLength: 1.0,
+                    yLength: 1.0, 
+                    zLength: 1.0,
+                    center: [0.5, 0.5, 0.5]  // Center the box in [0,1] space
+                });
+                const boxMapper = vtk.Rendering.Core.vtkMapper.newInstance();
+                boxMapper.setInputConnection(boxSource.getOutputPort());
+                
+                const boxActor = vtk.Rendering.Core.vtkActor.newInstance();
+                boxActor.setMapper(boxMapper);
+                boxActor.getProperty().setColor(0.5, 0.5, 0.5); // Gray wireframe
+                boxActor.getProperty().setOpacity(0.3);
+                boxActor.getProperty().setRepresentationToWireframe();
+                
+                this.renderer.addActor(boxActor);
+                console.log('✅ Data volume bounding box added (1x1x1 centered at 0.5,0.5,0.5)');
+                
+                // Try to create slice actors
+                console.log('🎨 Creating slice actors...');
+                this.sliceActors.inline = this.createSliceActor('inline', this.currentData.inline);
+                this.sliceActors.crossline = this.createSliceActor('crossline', this.currentData.crossline);
+                this.sliceActors.timeslice = this.createSliceActor('timeslice', this.currentData.timeslice);
+                
+                console.log('📊 Created actors:', {
+                    inline: !!this.sliceActors.inline,
+                    crossline: !!this.sliceActors.crossline,
+                    timeslice: !!this.sliceActors.timeslice
+                });
+                
+                // Add to renderer
+                Object.values(this.sliceActors).forEach((actor, index) => {
+                    if (actor) {
+                        console.log(`➕ Adding actor ${index} to renderer`);
+                        this.renderer.addActor(actor);
+                    } else {
+                        console.warn(`⚠️ Actor ${index} is null`);
+                    }
+                });
+                
+                // Reset camera to see everything
+                console.log('📷 Resetting camera...');
+                this.renderer.resetCamera();
+                
+                // Set up renderer for seismic interpretation
+                // Note: Some advanced features may not be available in this VTK.js version
+                try {
+                    if (this.renderer.setUseFXAA) {
+                        this.renderer.setUseFXAA(true);              // Anti-aliasing for smooth edges
+                    }
+                    if (this.renderer.setUseDepthPeeling) {
+                        this.renderer.setUseDepthPeeling(true);      // Proper transparency handling
+                    }
+                    if (this.renderer.setMaximumNumberOfPeels) {
+                        this.renderer.setMaximumNumberOfPeels(4);    // Better transparency quality
+                    }
+                } catch (error) {
+                    console.log('📝 Advanced renderer features not available in this VTK.js version');
+                }
+                
+                // Set camera position for optimal seismic viewing
+                const camera = this.renderer.getActiveCamera();
+                camera.setPosition(1.5, 1.5, 1.5);          // Closer view for detail
+                camera.setFocalPoint(0, 0, 0);
+                camera.setViewUp(0, 0, 1);                   // Z-up for seismic convention
+                this.renderer.resetCameraClippingRange();
+                
+                console.log('📷 Camera position:', camera.getPosition());
+                console.log('📷 Camera focal point:', camera.getFocalPoint());
+                
+                console.log('🎬 Rendering...');
+                this.renderWindow.getRenderWindow().render();
+                console.log('✅ Render complete');
+                
+                // Add mouse interaction info
+                console.log('🖱️ Mouse controls: Left=rotate, Right=zoom, Middle=pan');
+            }
+            
+            createSliceActor(sliceType, data) {
+                if (!data || !data.amplitudes) return null;
+                
+                const { width, height, amplitudes, minValue, maxValue, sliceIndex } = data;
+                
+                console.log(`🎨 Creating seismic ${sliceType} slice: ${width}x${height}, range: ${minValue.toFixed(1)}-${maxValue.toFixed(1)}`);
+                
+                try {
+                    // Create seismic texture using vtkImageData - following VTK.js standard pattern
+                    const imageData = vtk.Common.DataModel.vtkImageData.newInstance();
+                    imageData.setDimensions(width, height, 1);
+                    imageData.setSpacing(1.0, 1.0, 1.0);
+                    imageData.setOrigin(0, 0, 0);
+                    
+                    // Convert amplitude data to VTK format
+                    const dataArray = vtk.Common.Core.vtkDataArray.newInstance({
+                        name: 'SeismicAmplitude',
+                        numberOfComponents: 1,
+                        values: new Float32Array(amplitudes),
+                    });
+                    
+                    imageData.getPointData().setScalars(dataArray);
+                    
+                    // Create optimized plane for seismic data - balance quality vs performance
+                    const resolution = Math.min(32, Math.min(width, height)); // Reduced for performance
+                    const planeSource = vtk.Filters.Sources.vtkPlaneSource.newInstance({
+                        xResolution: resolution, 
+                        yResolution: resolution,
+                        origin: [-0.5, -0.5, 0],
+                        point1: [0.5, -0.5, 0],
+                        point2: [-0.5, 0.5, 0]
+                    });
+                    
+                    const plane = planeSource.getOutputData();
+                    const points = plane.getPoints();
+                    const numPoints = points.getNumberOfPoints();
+                    const pointData = points.getData();
+                    
+                    // Create scalar array for amplitude data
+                    const scalarArray = vtk.Common.Core.vtkDataArray.newInstance({
+                        name: 'SeismicAmplitude',
+                        numberOfComponents: 1,
+                        size: numPoints
+                    });
+                    
+                    // Map plane vertices to amplitude data with optimized sampling
+                    const scalars = new Float32Array(numPoints);
+                    const widthMinus1 = width - 1;
+                    const heightMinus1 = height - 1;
+                    
+                    for (let i = 0; i < numPoints; i++) {
+                        const pointIndex = i * 3;
+                        // Convert plane coordinates [-0.5, 0.5] to texture coordinates [0, 1]
+                        const u = pointData[pointIndex] + 0.5;     // X coordinate
+                        const v = pointData[pointIndex + 1] + 0.5; // Y coordinate
+                        
+                        // Sample amplitude data with bounds checking
+                        const x = Math.max(0, Math.min(widthMinus1, Math.floor(u * widthMinus1)));
+                        const y = Math.max(0, Math.min(heightMinus1, Math.floor(v * heightMinus1)));
+                        const ampIndex = y * width + x;
+                        
+                        scalars[i] = amplitudes[ampIndex] || minValue;
+                    }
+                    
+                    scalarArray.setData(scalars);
+                    plane.getPointData().setScalars(scalarArray);
+                    
+                    // Create mapper with scalar visualization
+                    const mapper = vtk.Rendering.Core.vtkMapper.newInstance();
+                    mapper.setInputData(plane);
+                    mapper.setScalarRange(minValue, maxValue);
+                    mapper.setScalarModeToUsePointData();
+                    
+                    // Create actor
+                    const actor = vtk.Rendering.Core.vtkActor.newInstance();
+                    actor.setMapper(mapper);
+                    
+                    // Set seismic visualization properties
+                    const property = actor.getProperty();
+                    property.setOpacity(0.9);
+                    
+                    // Position the slice in 3D seismic coordinate system
+                    this.positionSeismicSlice(actor, sliceType);
+                    
+                    console.log(`✅ Created textured seismic ${sliceType} slice`);
+                    return actor;
+                    
+                } catch (error) {
+                    console.error(`❌ Error creating seismic ${sliceType} slice:`, error);
+                    return null;
+                }
+            }
+            
+            positionSliceActor(actor, sliceType, sliceIndex, width, height) {
+                // Get current slice positions for proper intersection
+                const currentPositions = this.currentSlicePositions || {
+                    inline: Math.floor(this.dimensions.height / 2),
+                    crossline: Math.floor(this.dimensions.width / 2),  
+                    timeslice: Math.floor(this.dimensions.depth / 2)
+                };
+                
+                console.log(`📍 Positioning ${sliceType} slice at intersection:`, currentPositions);
+                
+                try {
+                    // Calculate intersection point in normalized [0,1] space
+                    const intersectionX = currentPositions.crossline / this.dimensions.width;
+                    const intersectionY = currentPositions.inline / this.dimensions.height;
+                    const intersectionZ = currentPositions.timeslice / this.dimensions.depth;
+                    
+                    console.log(`🎯 Intersection point: (${intersectionX.toFixed(3)}, ${intersectionY.toFixed(3)}, ${intersectionZ.toFixed(3)})`);
+                    
+                    // Convert to VTK coordinate system: centered at origin, range [-0.5, 0.5]
+                    const intersectionVTK = [
+                        intersectionX - 0.5,  // X: crossline position
+                        intersectionY - 0.5,  // Y: inline position  
+                        intersectionZ - 0.5   // Z: timeslice position
+                    ];
+                    
+                    // Since planes are already created in correct orientation and size,
+                    // we just need to translate them to the correct position
+                    switch (sliceType) {
+                        case 'inline':
+                            // YZ plane: move along X axis to crossline position
+                            actor.setPosition(intersectionVTK[0], 0, 0);
+                            break;
+                            
+                        case 'crossline':
+                            // XZ plane: move along Y axis to inline position
+                            actor.setPosition(0, intersectionVTK[1], 0);
+                            break;
+                            
+                        case 'timeslice':
+                            // XY plane: move along Z axis to timeslice position
+                            actor.setPosition(0, 0, intersectionVTK[2]);
+                            break;
+                    }
+                    console.log(`✅ Positioned ${sliceType} slice at VTK coordinates (${intersectionVTK[0].toFixed(3)}, ${intersectionVTK[1].toFixed(3)}, ${intersectionVTK[2].toFixed(3)})`);
+                    
+                } catch (error) {
+                    console.error(`❌ Error positioning ${sliceType} slice:`, error);
+                }
+            }
+            
+            
+            sendSliceUpdate(sliceType, sliceIndex) {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'set_slice',
+                        sliceType: sliceType,
+                        sliceIndex: sliceIndex
+                    }));
+                }
+            }
+            
+            updateConnectionStatus(connected) {
+                const indicator = this.statusElements.connection;
+                const text = this.statusElements.connectionText;
+                const wsStatus = this.statusElements.wsStatus;
+                
+                if (connected) {
+                    indicator.classList.add('connected');
+                    text.textContent = 'Connected';
+                    wsStatus.textContent = 'Connected';
+                } else {
+                    indicator.classList.remove('connected');
+                    text.textContent = 'Disconnected';
+                    wsStatus.textContent = 'Disconnected';
+                }
+            }
+            
+            resetCamera() {
+                if (this.renderer) {
+                    this.renderer.resetCamera();
+                    this.renderWindow.getRenderWindow().render();
+                }
+            }
+            
+            toggleSlices() {
+                this.showSlices = !this.showSlices;
+                Object.values(this.sliceActors).forEach(actor => {
+                    if (actor) {
+                        actor.setVisibility(this.showSlices);
+                    }
+                });
+                if (this.renderWindow) this.renderWindow.getRenderWindow().render();
+                
+                const btn = document.getElementById('toggle-slices');
+                btn.classList.toggle('active', this.showSlices);
+            }
+            
+            toggleWireframe() {
+                this.showWireframe = !this.showWireframe;
+                // VTK.js doesn't have direct wireframe for image slices
+                const btn = document.getElementById('toggle-wireframe');
+                btn.classList.toggle('active', this.showWireframe);
+            }
+            
+            toggleAxes() {
+                this.showAxes = !this.showAxes;
+                if (this.axesActor) {
+                    this.axesActor.setVisibility(this.showAxes);
+                }
+                if (this.renderWindow) this.renderWindow.getRenderWindow().render();
+                
+                const btn = document.getElementById('toggle-axes');
+                btn.classList.toggle('active', this.showAxes);
+            }
+            
+            onMouseMove(event) {
+                const pos = event.position || { x: 0, y: 0 };
+                this.statusElements.mousePos.textContent = `${pos.x}, ${pos.y}`;
+                
+                // TODO: Implement amplitude picking at mouse position
+                // This would require ray casting to find intersection with slices
+            }
+            
+            handleDimensions(dimensions) {
+                this.dimensions = dimensions;
+                
+                // Update UI
+                document.getElementById('vds-width').textContent = dimensions.width;
+                document.getElementById('vds-height').textContent = dimensions.height;
+                document.getElementById('vds-depth').textContent = dimensions.depth;
+                
+                // Update slider ranges
+                this.sliders.inline.max = dimensions.height - 1;
+                this.sliders.crossline.max = dimensions.width - 1;
+                this.sliders.timeslice.max = dimensions.depth - 1;
+            }
+            
+            setupSeismicControls() {
+                // Store initial amplitude range
+                this.originalAmplitudeRange = { min: 28.0, max: 252.0 };
+                this.currentAmplitudeRange = { ...this.originalAmplitudeRange };
+                
+                // Amplitude range controls
+                const ampMinSlider = document.getElementById('amplitude-min-slider');
+                const ampMaxSlider = document.getElementById('amplitude-max-slider');
+                const ampMinDisplay = document.getElementById('amp-min-display');
+                const ampMaxDisplay = document.getElementById('amp-max-display');
+                const ampRangeValue = document.getElementById('amplitude-range-value');
+                
+                const updateAmplitudeRange = () => {
+                    const minPercent = parseInt(ampMinSlider.value);
+                    const maxPercent = parseInt(ampMaxSlider.value);
+                    
+                    if (minPercent >= maxPercent) return; // Prevent invalid ranges
+                    
+                    const range = this.originalAmplitudeRange.max - this.originalAmplitudeRange.min;
+                    this.currentAmplitudeRange.min = this.originalAmplitudeRange.min + (range * minPercent / 100);
+                    this.currentAmplitudeRange.max = this.originalAmplitudeRange.min + (range * maxPercent / 100);
+                    
+                    ampMinDisplay.textContent = this.currentAmplitudeRange.min.toFixed(1);
+                    ampMaxDisplay.textContent = this.currentAmplitudeRange.max.toFixed(1);
+                    ampRangeValue.textContent = `${minPercent}% - ${maxPercent}%`;
+                    
+                    this.updateSliceColormaps();
+                };
+                
+                ampMinSlider.addEventListener('input', updateAmplitudeRange);
+                ampMaxSlider.addEventListener('input', updateAmplitudeRange);
+                
+                // Opacity control
+                const opacitySlider = document.getElementById('opacity-slider');
+                const opacityValue = document.getElementById('opacity-value');
+                
+                opacitySlider.addEventListener('input', (e) => {
+                    const opacity = parseInt(e.target.value) / 100;
+                    opacityValue.textContent = `${e.target.value}%`;
+                    this.updateSliceOpacity(opacity);
+                });
+                
+                // Colormap selection
+                const colormapSelect = document.getElementById('colormap-select');
+                colormapSelect.addEventListener('change', (e) => {
+                    this.currentColormap = e.target.value;
+                    this.updateSliceColormaps();
+                });
+                
+                // Quality selection
+                const qualitySelect = document.getElementById('quality-select');
+                qualitySelect.addEventListener('change', (e) => {
+                    this.interpolationQuality = e.target.value;
+                    // Trigger data refresh with new quality
+                    this.refreshSlicesWithQuality();
+                });
+                
+                this.currentColormap = 'seismic';
+                this.interpolationQuality = 'high';
+            }
+            
+            updateSliceColormaps() {
+                if (!this.sliceActors || !this.currentData) return;
+                
+                Object.entries(this.sliceActors).forEach(([sliceType, actor]) => {
+                    if (actor && this.currentData[sliceType]) {
+                        const mapper = actor.getMapper();
+                        const lookupTable = this.createColormap(
+                            this.currentAmplitudeRange.min,
+                            this.currentAmplitudeRange.max,
+                            this.currentColormap
+                        );
+                        
+                        mapper.setLookupTable(lookupTable);
+                        mapper.setScalarRange(this.currentAmplitudeRange.min, this.currentAmplitudeRange.max);
+                    }
+                });
+                
+                this.renderWindow.getRenderWindow().render();
+                console.log(`🎨 Updated colormaps: ${this.currentColormap} (${this.currentAmplitudeRange.min.toFixed(1)}-${this.currentAmplitudeRange.max.toFixed(1)})`);
+            }
+            
+            createColormap(minValue, maxValue, type) {
+                // Try different VTK.js paths for color transfer function
+                let lookupTable;
+                if (vtk.Rendering && vtk.Rendering.Core && vtk.Rendering.Core.vtkColorTransferFunction) {
+                    lookupTable = vtk.Rendering.Core.vtkColorTransferFunction.newInstance();
+                } else if (vtk.Common && vtk.Common.DataModel && vtk.Common.DataModel.vtkColorTransferFunction) {
+                    lookupTable = vtk.Common.DataModel.vtkColorTransferFunction.newInstance();
+                } else if (vtk.Common && vtk.Common.Core && vtk.Common.Core.vtkColorTransferFunction) {
+                    lookupTable = vtk.Common.Core.vtkColorTransferFunction.newInstance();
+                } else {
+                    console.error('❌ vtkColorTransferFunction not found in VTK.js');
+                    // Fallback to a simple grayscale lookup table
+                    return this.createSimpleGrayscaleLookupTable(minValue, maxValue);
+                }
+                const range = maxValue - minValue;
+                const center = minValue + range * 0.5;
+                
+                switch (type) {
+                    case 'seismic':
+                        // Blue-White-Red seismic colormap
+                        lookupTable.addRGBPoint(minValue, 0.0, 0.0, 0.8);
+                        lookupTable.addRGBPoint(center - range * 0.25, 0.3, 0.3, 1.0);
+                        lookupTable.addRGBPoint(center, 1.0, 1.0, 1.0);
+                        lookupTable.addRGBPoint(center + range * 0.25, 1.0, 0.3, 0.3);
+                        lookupTable.addRGBPoint(maxValue, 0.8, 0.0, 0.0);
+                        break;
+                        
+                    case 'grayscale':
+                        lookupTable.addRGBPoint(minValue, 0.0, 0.0, 0.0);
+                        lookupTable.addRGBPoint(maxValue, 1.0, 1.0, 1.0);
+                        break;
+                        
+                    case 'spectral':
+                        lookupTable.addRGBPoint(minValue, 0.0, 0.0, 0.5);
+                        lookupTable.addRGBPoint(minValue + range * 0.25, 0.0, 0.5, 1.0);
+                        lookupTable.addRGBPoint(center, 0.0, 1.0, 0.0);
+                        lookupTable.addRGBPoint(maxValue - range * 0.25, 1.0, 1.0, 0.0);
+                        lookupTable.addRGBPoint(maxValue, 1.0, 0.0, 0.0);
+                        break;
+                        
+                    case 'viridis':
+                        lookupTable.addRGBPoint(minValue, 0.267, 0.004, 0.329);
+                        lookupTable.addRGBPoint(minValue + range * 0.25, 0.282, 0.365, 0.553);
+                        lookupTable.addRGBPoint(center, 0.128, 0.565, 0.550);
+                        lookupTable.addRGBPoint(maxValue - range * 0.25, 0.364, 0.788, 0.382);
+                        lookupTable.addRGBPoint(maxValue, 0.993, 0.906, 0.144);
+                        break;
+                }
+                
+                return lookupTable;
+            }
+            
+            updateSliceOpacity(opacity) {
+                if (!this.sliceActors) return;
+                
+                Object.values(this.sliceActors).forEach(actor => {
+                    if (actor) {
+                        actor.getProperty().setOpacity(opacity);
+                    }
+                });
+                
+                this.renderWindow.getRenderWindow().render();
+                console.log(`💫 Updated slice opacity: ${(opacity * 100).toFixed(0)}%`);
+            }
+            
+            refreshSlicesWithQuality() {
+                // This would trigger a full refresh of slice data with new interpolation quality
+                console.log(`🔄 Refreshing slices with ${this.interpolationQuality} quality`);
+                // Implementation would recreate slice actors with different resolution settings
+            }
+            
+            createSimpleGrayscaleLookupTable(minValue, maxValue) {
+                // Fallback: use vtkLookupTable for simple grayscale mapping
+                if (vtk.Common && vtk.Common.Core && vtk.Common.Core.vtkLookupTable) {
+                    const lut = vtk.Common.Core.vtkLookupTable.newInstance();
+                    lut.setRange(minValue, maxValue);
+                    lut.setHueRange(0.0, 0.0); // Grayscale
+                    lut.setSaturationRange(0.0, 0.0); // Grayscale
+                    lut.setValueRange(0.0, 1.0); // Black to white
+                    lut.build();
+                    return lut;
+                }
+                
+                console.error('❌ No suitable lookup table found in VTK.js');
+                return null;
+            }
+            
+            createSeismicLookupTable(minValue, maxValue) {
+                // Create professional seismic lookup table (blue-white-red)
+                try {
+                    let lut;
+                    if (vtk.Common && vtk.Common.Core && vtk.Common.Core.vtkLookupTable) {
+                        lut = vtk.Common.Core.vtkLookupTable.newInstance();
+                        lut.setRange(minValue, maxValue);
+                        lut.setNumberOfTableValues(256);
+                        
+                        // Build seismic colormap manually
+                        const range = maxValue - minValue;
+                        const center = minValue + range * 0.5;
+                        
+                        for (let i = 0; i < 256; i++) {
+                            const value = minValue + (i / 255.0) * range;
+                            let r, g, b;
+                            
+                            if (value < center) {
+                                // Blue to white (negative amplitudes)
+                                const t = (value - minValue) / (center - minValue);
+                                r = t;
+                                g = t; 
+                                b = 1.0;
+                            } else {
+                                // White to red (positive amplitudes)
+                                const t = (value - center) / (maxValue - center);
+                                r = 1.0;
+                                g = 1.0 - t;
+                                b = 1.0 - t;
+                            }
+                            
+                            lut.setTableValue(i, r, g, b, 1.0);
+                        }
+                        
+                        lut.build();
+                        return lut;
+                    }
+                } catch (error) {
+                    console.warn('⚠️ Could not create seismic lookup table:', error);
+                }
+                return null;
+            }
+            
+            positionSeismicSlice(actor, sliceType) {
+                // Position slice in normalized seismic cube coordinates [-0.5, 0.5]
+                const currentPositions = this.currentSlicePositions || {
+                    inline: Math.floor(this.dimensions.height / 2),
+                    crossline: Math.floor(this.dimensions.width / 2),  
+                    timeslice: Math.floor(this.dimensions.depth / 2)
+                };
+                
+                // Convert to normalized coordinates
+                const normX = (currentPositions.crossline / this.dimensions.width) - 0.5;
+                const normY = (currentPositions.inline / this.dimensions.height) - 0.5;
+                const normZ = (currentPositions.timeslice / this.dimensions.depth) - 0.5;
+                
+                // Position and orient the textured plane following seismic conventions
+                switch (sliceType) {
+                    case 'inline':
+                        // YZ plane (perpendicular to X axis)
+                        actor.setPosition(normX, 0, 0);
+                        actor.rotateY(90);
+                        break;
+                        
+                    case 'crossline':
+                        // XZ plane (perpendicular to Y axis)
+                        actor.setPosition(0, normY, 0);
+                        actor.rotateX(90);
+                        break;
+                        
+                    case 'timeslice':
+                        // XY plane (perpendicular to Z axis)
+                        actor.setPosition(0, 0, normZ);
+                        // No rotation needed for XY plane
+                        break;
+                }
+                
+                console.log(`📍 Positioned seismic ${sliceType} at (${normX.toFixed(3)}, ${normY.toFixed(3)}, ${normZ.toFixed(3)})`);
+            }
+        }
+        
+        // Initialize the 3D scene when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('🎬 BluStream Phase 5 - Interactive 3D Seismic Scene');
+            console.log('===================================================');
+            
+            new Seismic3DScene();
+        });
+    </script>
+</body>
+</html>
