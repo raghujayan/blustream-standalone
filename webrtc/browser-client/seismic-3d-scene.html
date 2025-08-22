@@ -1095,64 +1095,77 @@
                     
                     imageData.getPointData().setScalars(dataArray);
                     
-                    // Use direct texture mapping for full seismic resolution
-                    console.log(`🎨 Creating high-resolution ${sliceType} slice with direct texture mapping (${width}x${height})`);
+                    // Create high-resolution mesh matching seismic data resolution
+                    const resolution = Math.min(width, height); // Use full data resolution
+                    console.log(`🎨 Creating full-resolution ${sliceType} slice with ${resolution}x${resolution} vertices for maximum detail`);
                     
-                    // Create a simple 2-triangle plane for texture mapping
                     const planeSource = vtk.Filters.Sources.vtkPlaneSource.newInstance({
-                        xResolution: 1,  // Just 2 triangles for texture mapping
-                        yResolution: 1,
+                        xResolution: resolution,
+                        yResolution: resolution,
                         origin: [-0.5, -0.5, 0],
                         point1: [0.5, -0.5, 0],
                         point2: [-0.5, 0.5, 0]
                     });
                     
                     const plane = planeSource.getOutputData();
+                    const points = plane.getPoints();
+                    const numPoints = points.getNumberOfPoints();
+                    const pointData = points.getData();
                     
-                    // Add texture coordinates for proper mapping
-                    const tcoords = vtk.Common.Core.vtkDataArray.newInstance({
-                        numberOfComponents: 2,
-                        values: new Float32Array([
-                            0.0, 0.0,  // Bottom-left
-                            1.0, 0.0,  // Bottom-right
-                            0.0, 1.0,  // Top-left
-                            1.0, 1.0   // Top-right
-                        ]),
-                        name: 'TextureCoordinates',
-                    });
-                    plane.getPointData().setTCoords(tcoords);
-                    
-                    // Set the full-resolution amplitude data as point data
-                    const fullResScalars = vtk.Common.Core.vtkDataArray.newInstance({
+                    // Create scalar array for amplitude data
+                    const scalarArray = vtk.Common.Core.vtkDataArray.newInstance({
                         name: 'SeismicAmplitude',
                         numberOfComponents: 1,
-                        values: new Float32Array(amplitudes),
+                        size: numPoints
                     });
                     
-                    // Create imageData for texture
-                    const textureImageData = vtk.Common.DataModel.vtkImageData.newInstance();
-                    textureImageData.setDimensions(width, height, 1);
-                    textureImageData.setSpacing(1.0, 1.0, 1.0);
-                    textureImageData.setOrigin(0, 0, 0);
-                    textureImageData.getPointData().setScalars(fullResScalars);
+                    // Map plane vertices to amplitude data with high-quality bilinear sampling
+                    const scalars = new Float32Array(numPoints);
+                    const widthMinus1 = width - 1;
+                    const heightMinus1 = height - 1;
                     
-                    // Create texture
-                    const texture = vtk.Rendering.Core.vtkTexture.newInstance();
-                    texture.setInputData(textureImageData);
-                    texture.setInterpolate(this.interpolationQuality === 'high');
+                    for (let i = 0; i < numPoints; i++) {
+                        const pointIndex = i * 3;
+                        // Convert plane coordinates [-0.5, 0.5] to texture coordinates [0, 1]
+                        const u = pointData[pointIndex] + 0.5;     // X coordinate
+                        const v = pointData[pointIndex + 1] + 0.5; // Y coordinate
+                        
+                        // High-quality bilinear sampling for smooth interpolation
+                        const x = u * widthMinus1;
+                        const y = v * heightMinus1;
+                        const x0 = Math.floor(x);
+                        const y0 = Math.floor(y);
+                        const x1 = Math.min(x0 + 1, widthMinus1);
+                        const y1 = Math.min(y0 + 1, heightMinus1);
+                        
+                        const fx = x - x0;
+                        const fy = y - y0;
+                        
+                        // Bilinear interpolation for geological detail preservation
+                        const amp00 = amplitudes[y0 * width + x0] || minValue;
+                        const amp10 = amplitudes[y0 * width + x1] || minValue;
+                        const amp01 = amplitudes[y1 * width + x0] || minValue;
+                        const amp11 = amplitudes[y1 * width + x1] || minValue;
+                        
+                        const amp0 = amp00 * (1 - fx) + amp10 * fx;
+                        const amp1 = amp01 * (1 - fx) + amp11 * fx;
+                        scalars[i] = amp0 * (1 - fy) + amp1 * fy;
+                    }
                     
-                    // Create mapper with texture support
+                    scalarArray.setData(scalars);
+                    plane.getPointData().setScalars(scalarArray);
+                    
+                    // Create mapper
                     const mapper = vtk.Rendering.Core.vtkMapper.newInstance();
                     mapper.setInputData(plane);
                     mapper.setScalarRange(minValue, maxValue);
                     mapper.setScalarModeToUsePointData();
                     
-                    // Create actor with texture
+                    // Create actor without texture for now - let's get back to working mesh approach
                     const actor = vtk.Rendering.Core.vtkActor.newInstance();
                     actor.setMapper(mapper);
-                    actor.addTexture(texture);
                     
-                    // Set seismic visualization properties
+                    // Set seismic visualization properties 
                     const property = actor.getProperty();
                     property.setOpacity(0.9);
                     
@@ -1502,6 +1515,8 @@
                         if (lookupTable) {
                             mapper.setLookupTable(lookupTable);
                             mapper.setScalarRange(this.currentAmplitudeRange.min, this.currentAmplitudeRange.max);
+                            
+                            
                             console.log(`✅ Applied new range to ${sliceType}: ${this.currentAmplitudeRange.min.toFixed(1)}-${this.currentAmplitudeRange.max.toFixed(1)}`);
                         } else {
                             console.log(`❌ Failed to create lookup table for ${sliceType}`);
