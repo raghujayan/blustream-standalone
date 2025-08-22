@@ -3,295 +3,76 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BluStream Phase 5 - WebRTC Seismic Streaming</title>
-    <link rel="stylesheet" href="styles.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>BluStream - 3D Seismic Visualization</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #000;
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+        .redirect-container {
+            max-width: 600px;
+            margin: 100px auto;
+            padding: 40px;
+            background: #1a1a1a;
+            border-radius: 12px;
+            border: 1px solid #333;
+        }
+        .logo {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+        }
+        .message {
+            font-size: 1.2em;
+            margin-bottom: 30px;
+            color: #ccc;
+        }
+        .redirect-btn {
+            background: #00bcd4;
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .redirect-btn:hover {
+            background: #00acc1;
+            transform: translateY(-1px);
+        }
+        .auto-redirect {
+            margin-top: 20px;
+            color: #888;
+            font-size: 0.9em;
+        }
+    </style>
+    <script>
+        // Auto-redirect after 3 seconds
+        setTimeout(() => {
+            window.location.href = '/seismic-3d-scene.html';
+        }, 3000);
+    </script>
 </head>
 <body>
-    <!-- Loading Screen -->
-    <div id="loading-screen" class="loading-screen">
-        <div class="loading-content">
-            <div class="logo">
-                <h1>🎬 BluStream</h1>
-                <p>Phase 5 WebRTC Seismic Streaming</p>
-            </div>
-            <div class="loading-spinner"></div>
-            <div id="loading-status" class="loading-status">Connecting to signaling server...</div>
+    <div class="redirect-container">
+        <div class="logo">🎬 BluStream</div>
+        <div class="message">
+            Video streaming has been disabled.<br>
+            Redirecting to 3D Seismic Visualization...
+        </div>
+        <a href="/seismic-3d-scene.html" class="redirect-btn">
+            Go to 3D Visualization
+        </a>
+        <div class="auto-redirect">
+            Automatically redirecting in 3 seconds...
         </div>
     </div>
-
-    <!-- Main Application -->
-    <div id="app" class="app hidden">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-left">
-                <h1 class="app-title">🎬 BluStream WebRTC</h1>
-                <div class="connection-status">
-                    <div id="connection-indicator" class="connection-indicator disconnected"></div>
-                    <span id="connection-text">Disconnected</span>
-                </div>
-            </div>
-            <div class="header-right">
-                <button id="settings-btn" class="icon-btn" title="Settings">⚙️</button>
-                <button id="fullscreen-btn" class="icon-btn" title="Fullscreen">⛶</button>
-                <button id="info-btn" class="icon-btn" title="Info">ℹ️</button>
-            </div>
-        </header>
-
-        <!-- Video Container -->
-        <main class="video-container">
-            <!-- VTK.js 3D Seismic Visualization -->
-            <div 
-                id="vtk-container" 
-                class="vtk-container" 
-                style="width: 100%; height: 100%; background: #000;">
-            </div>
-            
-            <!-- Canvas fallback for seismic visualization -->
-            <canvas 
-                id="seismic-canvas" 
-                class="seismic-canvas" 
-                width="1920" 
-                height="1080"
-                style="width: 100%; height: 100%; background: #000; display: none;">
-                Your browser does not support canvas.
-            </canvas>
-            <video 
-                id="seismic-video" 
-                class="seismic-video" 
-                autoplay 
-                muted 
-                playsinline
-                style="display: none;"
-                poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23000'/%3E%3Ctext x='50' y='50' font-size='12' fill='%23666' text-anchor='middle' dy='.3em'%3ESeismic Data%3C/text%3E%3C/svg%3E">
-            </video>
-            
-            <!-- Video Overlay -->
-            <div class="video-overlay">
-
-                <!-- Performance Info -->
-                <div id="video-info" class="video-info">
-                    <div class="info-item">
-                        <span class="info-label">Resolution:</span>
-                        <span id="resolution-text">--</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">FPS:</span>
-                        <span id="fps-text">--</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Bitrate:</span>
-                        <span id="bitrate-text">--</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Latency:</span>
-                        <span id="latency-text">--</span>
-                    </div>
-                </div>
-                
-                <!-- Connection Status Banner -->
-                <div id="connection-banner" class="connection-banner hidden">
-                    <div class="banner-content">
-                        <span id="banner-text">Connecting...</span>
-                        <button id="retry-btn" class="retry-btn hidden">Retry</button>
-                    </div>
-                </div>
-            </div>
-        </main>
-
-        <!-- Controls Panel -->
-        <div class="controls-panel">
-            <!-- Primary Controls -->
-            <div class="controls-section">
-                <h3>📹 Playback</h3>
-                <div class="control-group">
-                    <button id="play-pause-btn" class="control-btn primary" disabled>
-                        <span class="btn-icon">⏸️</span>
-                        <span class="btn-text">Pause</span>
-                    </button>
-                    <button id="restart-btn" class="control-btn" disabled>
-                        <span class="btn-icon">⏮️</span>
-                        <span class="btn-text">Restart</span>
-                    </button>
-                </div>
-                
-                <div class="control-group">
-                    <label for="speed-control" class="control-label">Animation Speed: <span id="speed-value">1.0x</span></label>
-                    <input 
-                        type="range" 
-                        id="speed-control" 
-                        class="slider" 
-                        min="0.1" 
-                        max="3.0" 
-                        step="0.1" 
-                        value="1.0"
-                        disabled>
-                </div>
-            </div>
-
-            <!-- Seismic Controls -->
-            <div class="controls-section">
-                <h3>📐 Seismic View</h3>
-                <div class="control-group">
-                    <label for="orientation-select" class="control-label">Slice Orientation:</label>
-                    <select id="orientation-select" class="select-input" disabled>
-                        <option value="XZ">XZ - Vertical Sections (Default)</option>
-                        <option value="XY">XY - Horizontal Slices</option>
-                        <option value="YZ">YZ - Crossline Sections</option>
-                    </select>
-                </div>
-                
-                <div class="control-group">
-                    <label for="duration-control" class="control-label">Animation Duration: <span id="duration-value">30s</span></label>
-                    <input 
-                        type="range" 
-                        id="duration-control" 
-                        class="slider" 
-                        min="10" 
-                        max="120" 
-                        step="5" 
-                        value="30"
-                        disabled>
-                </div>
-            </div>
-
-            <!-- Quality Controls -->
-            <div class="controls-section">
-                <h3>🔧 Quality</h3>
-                <div class="control-group">
-                    <label for="quality-select" class="control-label">Stream Quality:</label>
-                    <select id="quality-select" class="select-input" disabled>
-                        <option value="auto">Auto (Recommended)</option>
-                        <option value="4k">4K - Ultra High (3840×2160)</option>
-                        <option value="1080p">1080p - High (1920×1080)</option>
-                        <option value="720p">720p - Medium (1280×720)</option>
-                        <option value="480p">480p - Low (854×480)</option>
-                    </select>
-                </div>
-                
-                <div class="control-group">
-                    <label for="fps-select" class="control-label">Frame Rate:</label>
-                    <select id="fps-select" class="select-input" disabled>
-                        <option value="auto">Auto</option>
-                        <option value="60">60 FPS</option>
-                        <option value="30">30 FPS</option>
-                        <option value="15">15 FPS</option>
-                    </select>
-                </div>
-            </div>
-
-            <!-- Statistics -->
-            <div class="controls-section">
-                <h3>📊 Statistics</h3>
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <span class="stat-label">Packets Lost:</span>
-                        <span id="packets-lost" class="stat-value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Jitter:</span>
-                        <span id="jitter" class="stat-value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">RTT:</span>
-                        <span id="rtt" class="stat-value">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Hardware Accel:</span>
-                        <span id="hw-accel" class="stat-value">--</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Settings Modal -->
-    <div id="settings-modal" class="modal hidden">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>⚙️ Settings</h3>
-                <button id="close-settings" class="close-btn">✕</button>
-            </div>
-            <div class="modal-body">
-                <div class="setting-group">
-                    <label for="server-url">Signaling Server URL:</label>
-                    <input type="text" id="server-url" value="http://localhost:3005" class="text-input">
-                </div>
-                <div class="setting-group">
-                    <label for="session-id">Session ID:</label>
-                    <input type="text" id="session-id" placeholder="Leave empty to create new session" class="text-input">
-                </div>
-                <div class="setting-group">
-                    <label>
-                        <input type="checkbox" id="auto-reconnect" checked>
-                        Auto-reconnect on connection loss
-                    </label>
-                </div>
-                <div class="setting-group">
-                    <label>
-                        <input type="checkbox" id="show-stats" checked>
-                        Show performance statistics
-                    </label>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button id="save-settings" class="control-btn primary">Save Settings</button>
-                <button id="reset-settings" class="control-btn">Reset Defaults</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Info Modal -->
-    <div id="info-modal" class="modal hidden">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>ℹ️ About BluStream WebRTC</h3>
-                <button id="close-info" class="close-btn">✕</button>
-            </div>
-            <div class="modal-body">
-                <div class="info-section">
-                    <h4>🎬 BluStream Phase 5</h4>
-                    <p>Real-time seismic data streaming via WebRTC with hardware-accelerated encoding.</p>
-                </div>
-                <div class="info-section">
-                    <h4>🚀 Features</h4>
-                    <ul>
-                        <li>Ultra-low latency WebRTC streaming (&lt;150ms)</li>
-                        <li>Hardware-accelerated encoding (NVENC)</li>
-                        <li>Interactive VDS navigation controls</li>
-                        <li>Adaptive quality based on network conditions</li>
-                        <li>Multi-client collaborative viewing</li>
-                    </ul>
-                </div>
-                <div class="info-section">
-                    <h4>🎮 Controls</h4>
-                    <ul>
-                        <li><strong>Play/Pause:</strong> Control animation playback</li>
-                        <li><strong>Speed:</strong> Adjust animation speed (0.1x - 3.0x)</li>
-                        <li><strong>Orientation:</strong> Switch between XY, XZ, YZ views</li>
-                        <li><strong>Quality:</strong> Manual or automatic quality selection</li>
-                    </ul>
-                </div>
-                <div class="info-section">
-                    <h4>🌐 Browser Requirements</h4>
-                    <ul>
-                        <li>Chrome 90+ (recommended)</li>
-                        <li>Firefox 88+</li>
-                        <li>Safari 14+</li>
-                        <li>Edge 90+</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Scripts -->
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/vtk.js@30.0.0/dist/vtk.js"></script>
-    <script src="blustream-webrtc.js"></script>
-    <script src="app.js"></script>
 </body>
 </html>
