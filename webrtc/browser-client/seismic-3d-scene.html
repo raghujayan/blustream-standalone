@@ -655,6 +655,11 @@
                 this.showWireframe = false;
                 this.showAxes = true;
                 
+                // Histogram windowing properties
+                this.histogramMode = 'manual';
+                this.symmetricTransferFunction = false;
+                this.lastAmplitudeData = null;
+                
                 this.initializeElements();
                 this.initializeSliders();
                 this.initializeVTK();
@@ -941,6 +946,9 @@
                 };
                 
                 console.log('📍 Current slice positions:', this.currentSlicePositions);
+                
+                // Store amplitude data for histogram calculations
+                this.lastAmplitudeData = data;
                 
                 // Update amplitude range display
                 if (data.inline) {
@@ -1345,21 +1353,94 @@
                 const histogramRangeInfo = document.getElementById('histogram-range-info');
                 
                 histogramModeSelect.addEventListener('change', (e) => {
-                    const mode = e.target.value;
-                    histogramRangeInfo.textContent = mode === 'manual' ? 'Manual' : 
-                        mode === 'percentile' ? 'Auto p2-p98' : 'Auto ±2σ';
-                    console.log(`🔧 Histogram mode: ${mode}`);
-                    // TODO: Implement histogram windowing
+                    this.histogramMode = e.target.value;
+                    histogramRangeInfo.textContent = this.histogramMode === 'manual' ? 'Manual' : 
+                        this.histogramMode === 'percentile' ? 'Auto p2-p98' : 'Auto ±2σ';
+                    console.log(`🔧 Histogram mode: ${this.histogramMode}`);
+                    this.applyHistogramWindowing();
                 });
                 
                 symmetricTfCheckbox.addEventListener('change', (e) => {
-                    const isSymmetric = e.target.checked;
-                    console.log(`🔧 Symmetric TF: ${isSymmetric}`);
-                    // TODO: Implement symmetric transfer function
+                    this.symmetricTransferFunction = e.target.checked;
+                    console.log(`🔧 Symmetric TF: ${this.symmetricTransferFunction}`);
+                    this.applyHistogramWindowing();
                 });
                 
                 this.currentColormap = 'seismic';
                 this.interpolationQuality = 'high';
+            }
+            
+            computeHistogramRange(amplitudes) {
+                if (!amplitudes || amplitudes.length === 0) {
+                    return null;
+                }
+                
+                const data = Array.from(amplitudes);
+                const n = data.length;
+                
+                switch (this.histogramMode) {
+                    case 'percentile':
+                        const sorted = data.slice().sort((a, b) => a - b);
+                        const p2Index = Math.floor(0.02 * n);
+                        const p98Index = Math.floor(0.98 * n);
+                        
+                        let min = sorted[Math.max(0, p2Index)];
+                        let max = sorted[Math.min(n - 1, p98Index)];
+                        
+                        if (this.symmetricTransferFunction) {
+                            const maxAbs = Math.max(Math.abs(min), Math.abs(max));
+                            min = -maxAbs;
+                            max = maxAbs;
+                        }
+                        
+                        console.log(`📊 Histogram p2-p98: ${min.toFixed(1)} to ${max.toFixed(1)}`);
+                        return { min, max };
+                        
+                    case 'stddev':
+                        const mean = data.reduce((sum, val) => sum + val, 0) / n;
+                        const variance = data.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / n;
+                        const stddev = Math.sqrt(variance);
+                        
+                        let minStd = mean - 2 * stddev;
+                        let maxStd = mean + 2 * stddev;
+                        
+                        if (this.symmetricTransferFunction) {
+                            const center = Math.abs(mean) < stddev * 0.1 ? 0 : mean;
+                            const radius = Math.max(Math.abs(minStd - center), Math.abs(maxStd - center));
+                            minStd = center - radius;
+                            maxStd = center + radius;
+                        }
+                        
+                        console.log(`📊 Histogram ±2σ: ${minStd.toFixed(1)} to ${maxStd.toFixed(1)} (μ=${mean.toFixed(1)}, σ=${stddev.toFixed(1)})`);
+                        return { min: minStd, max: maxStd };
+                        
+                    default:
+                        return null;
+                }
+            }
+            
+            applyHistogramWindowing() {
+                if (!this.lastAmplitudeData || this.histogramMode === 'manual') {
+                    return;
+                }
+                
+                // Apply histogram windowing to each slice type
+                ['inline', 'crossline', 'timeslice'].forEach(sliceType => {
+                    const sliceData = this.lastAmplitudeData[sliceType];
+                    if (sliceData && sliceData.amplitudes) {
+                        const histogramRange = this.computeHistogramRange(sliceData.amplitudes);
+                        if (histogramRange) {
+                            // Update the amplitude range for this slice type
+                            this.currentAmplitudeRange.min = histogramRange.min;
+                            this.currentAmplitudeRange.max = histogramRange.max;
+                            
+                            console.log(`📊 Applied histogram windowing to ${sliceType}: [${histogramRange.min.toFixed(2)}, ${histogramRange.max.toFixed(2)}]`);
+                        }
+                    }
+                });
+                
+                // Apply the new range to existing slices
+                this.updateSliceColormaps();
             }
             
             updateSliceColormaps() {
