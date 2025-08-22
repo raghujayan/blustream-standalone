@@ -95,6 +95,10 @@ class BluStreamWebRTCBridge {
                 await this.handleWebRTCAnswer(socket, data);
             });
             
+            socket.on('slice_control', async (data) => {
+                await this.handleSliceControl(socket, data);
+            });
+            
             socket.on('disconnect', () => {
                 this.handleDisconnect(socket);
             });
@@ -550,6 +554,53 @@ a=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
         }
     }
     
+    async handleSliceControl(socket, data) {
+        console.log(`📊 Slice control received from ${socket.id}:`, data);
+        
+        const session = Array.from(this.sessions.values())
+            .find(s => s.socketId === socket.id);
+        
+        if (!session) {
+            console.warn(`⚠️ No session found for slice control from ${socket.id}`);
+            return;
+        }
+
+        // For now, broadcast slice info back to client with mock survey data
+        // In a real implementation, this would communicate with the Phase 4 server
+        const mockSliceInfo = {
+            current_orientation: data.orientation || 'inline',
+            current_slice: data.slice_index || 0,
+            total_slices: this.getMockTotalSlices(data.orientation || 'inline'),
+            playback_speed: data.playback_speed || 1.0,
+            is_playing: data.is_playing || false,
+            is_looping: data.auto_loop || true,
+            survey_info: {
+                inlineCount: 100,
+                xlineCount: 100,
+                zsliceCount: 100,
+                inlineStart: 1,
+                xlineStart: 1,
+                zStart: 0.0,
+                zEnd: 3000.0,
+                surveyName: 'Real Seismic Survey'
+            }
+        };
+
+        // Send slice info update back to client
+        socket.emit('slice_info', mockSliceInfo);
+        
+        console.log(`📊 Sent slice info update to ${socket.id}`);
+    }
+    
+    getMockTotalSlices(orientation) {
+        switch (orientation) {
+            case 'inline': return 100;
+            case 'xline': return 100;
+            case 'zslice': return 100;
+            default: return 100;
+        }
+    }
+
     handleDisconnect(socket) {
         const session = Array.from(this.sessions.values())
             .find(s => s.socketId === socket.id);

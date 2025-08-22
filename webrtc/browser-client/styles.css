@@ -541,6 +541,121 @@ body {
     color: var(--text-primary);
 }
 
+/* Slice Navigation HUD */
+.slice-hud {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    background: rgba(30, 41, 59, 0.95);
+    border: 1px solid var(--border);
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    backdrop-filter: blur(10px);
+    box-shadow: var(--shadow);
+    font-size: 0.9rem;
+    min-width: 300px;
+    z-index: 10;
+}
+
+.hud-section {
+    margin-bottom: 0.75rem;
+}
+
+.hud-title {
+    color: var(--text-primary);
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    font-size: 1rem;
+}
+
+.hud-info {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.hud-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.hud-label {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.hud-controls {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.hud-btn {
+    background: var(--surface-light);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: var(--transition);
+    min-width: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.hud-btn:hover {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.hud-btn:active {
+    transform: translateY(1px);
+}
+
+.hud-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.hud-select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: var(--transition);
+    flex: 1;
+    min-width: 120px;
+}
+
+.hud-select:hover,
+.hud-select:focus {
+    border-color: var(--primary-color);
+    outline: none;
+}
+
+.slice-hud.collapsed {
+    transform: translateX(-80%);
+}
+
+.slice-hud.collapsed:hover {
+    transform: translateX(0);
+}
+
+/* Keyboard shortcuts indicator */
+.hud-shortcuts {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .header {

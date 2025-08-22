@@ -22,6 +22,26 @@ class BluStreamApp {
         this.socket = null;
         this.isConnected = false;
         this.currentSession = null;
+        
+        // Slice navigation state
+        this.sliceState = {
+            orientation: 'inline',  // 'inline', 'xline', 'zslice'
+            currentSlice: 0,
+            totalSlices: 100,
+            isPlaying: false,
+            playbackSpeed: 1.0,
+            isLooping: true,
+            surveyInfo: {
+                inlineCount: 100,
+                xlineCount: 100,
+                zsliceCount: 100,
+                inlineStart: 1,
+                xlineStart: 1,
+                zStart: 0.0,
+                zEnd: 3000.0,
+                surveyName: 'Seismic Survey'
+            }
+        };
         this.loadSettings();
         this.initializeElements();
         this.setupEventListeners();
@@ -75,6 +95,17 @@ class BluStreamApp {
         this.elements.qualitySelect = document.getElementById('quality-select');
         this.elements.fpsSelect = document.getElementById('fps-select');
         
+        // Slice HUD elements
+        this.elements.sliceHud = document.getElementById('slice-hud');
+        this.elements.sliceOrientation = document.getElementById('slice-orientation');
+        this.elements.sliceCurrent = document.getElementById('slice-current');
+        this.elements.sliceTotal = document.getElementById('slice-total');
+        this.elements.surveyDimensions = document.getElementById('survey-dimensions');
+        this.elements.prevSliceBtn = document.getElementById('prev-slice-btn');
+        this.elements.playPauseSliceBtn = document.getElementById('play-pause-slice-btn');
+        this.elements.nextSliceBtn = document.getElementById('next-slice-btn');
+        this.elements.sliceOrientationSelect = document.getElementById('slice-orientation-select');
+
         // Statistics elements
         this.elements.resolutionText = document.getElementById('resolution-text');
         this.elements.fpsText = document.getElementById('fps-text');
@@ -142,6 +173,14 @@ class BluStreamApp {
         
         this.elements.fpsSelect.addEventListener('change', (e) => {
             this.updateFrameRate(e.target.value);
+        });
+
+        // Slice navigation controls
+        this.elements.prevSliceBtn.addEventListener('click', () => this.prevSlice());
+        this.elements.nextSliceBtn.addEventListener('click', () => this.nextSlice());
+        this.elements.playPauseSliceBtn.addEventListener('click', () => this.toggleSlicePlayback());
+        this.elements.sliceOrientationSelect.addEventListener('change', (e) => {
+            this.setSliceOrientation(e.target.value);
         });
         
         // Modal controls
@@ -699,6 +738,11 @@ class BluStreamApp {
                 console.error(`❌ WebRTC error: ${data.error}`);
                 this.showConnectionBanner(`Error: ${data.error}`, true);
             });
+
+            this.socket.on('slice_info', (data) => {
+                console.log('📊 Received slice info update:', data);
+                this.onSliceInfoReceived(data);
+            });
             
         } catch (error) {
             console.error('❌ Connection failed:', error);
@@ -1033,6 +1077,7 @@ class BluStreamApp {
      */
     updateUI() {
         this.updateStatsVisibility();
+        this.updateSliceHUD();
     }
     
     /**
@@ -1048,7 +1093,7 @@ class BluStreamApp {
         switch (event.code) {
             case 'Space':
                 event.preventDefault();
-                this.togglePlayPause();
+                this.toggleSlicePlayback(); // Toggle slice animation instead of general playback
                 break;
             case 'KeyR':
                 event.preventDefault();
@@ -1062,6 +1107,60 @@ class BluStreamApp {
                 if (document.fullscreenElement) {
                     document.exitFullscreen();
                 }
+                break;
+            
+            // Slice navigation shortcuts
+            case 'ArrowLeft':
+                event.preventDefault();
+                this.prevSlice();
+                break;
+            case 'ArrowRight':
+                event.preventDefault();
+                this.nextSlice();
+                break;
+            case 'ArrowUp':
+                event.preventDefault();
+                if (this.sliceState.orientation !== 'xline') {
+                    this.setSliceOrientation('xline');
+                } else {
+                    this.prevSlice();
+                }
+                break;
+            case 'ArrowDown':
+                event.preventDefault();
+                if (this.sliceState.orientation !== 'xline') {
+                    this.setSliceOrientation('xline');
+                } else {
+                    this.nextSlice();
+                }
+                break;
+            case 'PageUp':
+                event.preventDefault();
+                if (this.sliceState.orientation !== 'zslice') {
+                    this.setSliceOrientation('zslice');
+                } else {
+                    this.prevSlice();
+                }
+                break;
+            case 'PageDown':
+                event.preventDefault();
+                if (this.sliceState.orientation !== 'zslice') {
+                    this.setSliceOrientation('zslice');
+                } else {
+                    this.nextSlice();
+                }
+                break;
+            case 'KeyI':
+                event.preventDefault();
+                this.setSliceOrientation('inline');
+                break;
+            case 'KeyX':
+                event.preventDefault();
+                this.setSliceOrientation('xline');
+                break;
+            case 'KeyZ':
+                event.preventDefault();
+                this.setSliceOrientation('zslice');
                 break;
         }
     }
@@ -1089,6 +1188,153 @@ class BluStreamApp {
         }
         
         this.isConnected = false;
+    }
+
+    /**
+     * Slice Navigation Methods
+     */
+    
+    prevSlice() {
+        if (this.sliceState.currentSlice > 0) {
+            this.setSliceIndex(this.sliceState.currentSlice - 1);
+        } else if (this.sliceState.isLooping) {
+            this.setSliceIndex(this.sliceState.totalSlices - 1);
+        }
+    }
+    
+    nextSlice() {
+        if (this.sliceState.currentSlice < this.sliceState.totalSlices - 1) {
+            this.setSliceIndex(this.sliceState.currentSlice + 1);
+        } else if (this.sliceState.isLooping) {
+            this.setSliceIndex(0);
+        }
+    }
+    
+    setSliceIndex(index) {
+        if (index >= 0 && index < this.sliceState.totalSlices) {
+            this.sliceState.currentSlice = index;
+            this.updateSliceHUD();
+            this.sendSliceControlMessage({
+                type: 'SET_SLICE',
+                orientation: this.sliceState.orientation,
+                slice_index: index
+            });
+        }
+    }
+    
+    setSliceOrientation(orientation) {
+        if (this.sliceState.orientation !== orientation) {
+            this.sliceState.orientation = orientation;
+            
+            // Update total slices based on orientation
+            switch (orientation) {
+                case 'inline':
+                    this.sliceState.totalSlices = this.sliceState.surveyInfo.inlineCount;
+                    break;
+                case 'xline':
+                    this.sliceState.totalSlices = this.sliceState.surveyInfo.xlineCount;
+                    break;
+                case 'zslice':
+                    this.sliceState.totalSlices = this.sliceState.surveyInfo.zsliceCount;
+                    break;
+            }
+            
+            // Reset to first slice of new orientation
+            this.sliceState.currentSlice = 0;
+            this.updateSliceHUD();
+            this.sendSliceControlMessage({
+                type: 'SET_ORIENTATION',
+                orientation: orientation,
+                slice_index: 0
+            });
+        }
+    }
+    
+    toggleSlicePlayback() {
+        this.sliceState.isPlaying = !this.sliceState.isPlaying;
+        this.updateSliceHUD();
+        this.sendSliceControlMessage({
+            type: 'SET_PLAYBACK',
+            is_playing: this.sliceState.isPlaying,
+            playback_speed: this.sliceState.playbackSpeed
+        });
+    }
+    
+    updateSliceHUD() {
+        // Update orientation display
+        const orientationNames = {
+            'inline': 'Inline (XZ)',
+            'xline': 'Xline (YZ)',
+            'zslice': 'Time/Depth (XY)'
+        };
+        this.elements.sliceOrientation.textContent = orientationNames[this.sliceState.orientation];
+        
+        // Update slice index
+        this.elements.sliceCurrent.textContent = this.sliceState.currentSlice + 1;
+        this.elements.sliceTotal.textContent = this.sliceState.totalSlices;
+        
+        // Update survey dimensions
+        const survey = this.sliceState.surveyInfo;
+        this.elements.surveyDimensions.textContent = 
+            `${survey.inlineCount} × ${survey.xlineCount} × ${survey.zsliceCount}`;
+        
+        // Update orientation selector
+        this.elements.sliceOrientationSelect.value = this.sliceState.orientation;
+        
+        // Update play/pause button
+        this.elements.playPauseSliceBtn.textContent = this.sliceState.isPlaying ? '⏸️' : '▶️';
+        this.elements.playPauseSliceBtn.title = this.sliceState.isPlaying ? 'Pause (Space)' : 'Play (Space)';
+        
+        // Update button states
+        this.elements.prevSliceBtn.disabled = !this.sliceState.isLooping && this.sliceState.currentSlice === 0;
+        this.elements.nextSliceBtn.disabled = !this.sliceState.isLooping && 
+                                            this.sliceState.currentSlice === this.sliceState.totalSlices - 1;
+    }
+    
+    sendSliceControlMessage(control) {
+        if (this.socket && this.isConnected) {
+            const message = {
+                type: 'slice_control',
+                control_type: control.type,
+                orientation: control.orientation || this.sliceState.orientation,
+                slice_index: control.slice_index !== undefined ? control.slice_index : this.sliceState.currentSlice,
+                playback_speed: control.playback_speed || this.sliceState.playbackSpeed,
+                is_playing: control.is_playing !== undefined ? control.is_playing : this.sliceState.isPlaying,
+                auto_loop: this.sliceState.isLooping
+            };
+            
+            console.log('📊 Sending slice control:', message);
+            this.socket.emit('slice_control', message);
+        }
+    }
+    
+    onSliceInfoReceived(sliceInfo) {
+        // Update survey info from server
+        if (sliceInfo.survey_info) {
+            this.sliceState.surveyInfo = sliceInfo.survey_info;
+        }
+        
+        // Update current state
+        this.sliceState.currentSlice = sliceInfo.current_slice || 0;
+        this.sliceState.orientation = sliceInfo.current_orientation || 'inline';
+        this.sliceState.isPlaying = sliceInfo.is_playing || false;
+        this.sliceState.playbackSpeed = sliceInfo.playback_speed || 1.0;
+        
+        // Update total slices for current orientation
+        switch (this.sliceState.orientation) {
+            case 'inline':
+                this.sliceState.totalSlices = this.sliceState.surveyInfo.inlineCount;
+                break;
+            case 'xline':
+                this.sliceState.totalSlices = this.sliceState.surveyInfo.xlineCount;
+                break;
+            case 'zslice':
+                this.sliceState.totalSlices = this.sliceState.surveyInfo.zsliceCount;
+                break;
+        }
+        
+        this.updateSliceHUD();
+        console.log('📊 Slice info updated:', this.sliceState);
     }
 }
 

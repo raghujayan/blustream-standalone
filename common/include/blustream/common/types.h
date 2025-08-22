@@ -71,6 +71,8 @@ enum class MessageType : uint8_t {
     METRICS_UPDATE = 0x08,
     CONFIG = 0x09,
     FRAME = 0x0A,
+    SLICE_CONTROL = 0x0B,  // Slice navigation control
+    SLICE_INFO = 0x0C,     // Slice info/survey dimensions
     ERROR = 0xFF
 };
 
@@ -124,6 +126,50 @@ struct CameraState {
     float fov;
     float near_plane;
     float far_plane;
+};
+
+// Seismic data slice navigation
+enum class SliceOrientation : uint8_t {
+    INLINE = 0,    // XZ slices (constant Y) - Inline sections
+    XLINE = 1,     // YZ slices (constant X) - Crossline sections  
+    ZSLICE = 2     // XY slices (constant Z) - Time/depth slices
+};
+
+enum class SliceControlType : uint8_t {
+    SET_SLICE = 0,        // Set specific slice index
+    NEXT_SLICE = 1,       // Move to next slice
+    PREV_SLICE = 2,       // Move to previous slice
+    SET_ORIENTATION = 3,  // Change slice orientation
+    SET_PLAYBACK = 4      // Control slice animation playback
+};
+
+struct SliceControlMessage {
+    SliceControlType control_type;
+    SliceOrientation orientation;
+    uint32_t slice_index;
+    float playback_speed;  // 0.0 = paused, 1.0 = normal speed
+    bool auto_loop;        // Whether to loop at boundaries
+};
+
+struct SeismicSurveyInfo {
+    uint32_t inline_count;     // Number of inline slices (X dimension)
+    uint32_t xline_count;      // Number of crossline slices (Y dimension) 
+    uint32_t zslice_count;     // Number of time/depth slices (Z dimension)
+    uint32_t inline_start;     // Starting inline number
+    uint32_t xline_start;      // Starting crossline number
+    float z_start;             // Starting time/depth value
+    float z_end;               // Ending time/depth value
+    std::string survey_name;   // Survey identifier
+};
+
+struct SliceStatusMessage {
+    SliceOrientation current_orientation;
+    uint32_t current_slice;
+    uint32_t total_slices;
+    float playback_speed;
+    bool is_playing;
+    bool is_looping;
+    SeismicSurveyInfo survey_info;
 };
 
 }  // namespace common
