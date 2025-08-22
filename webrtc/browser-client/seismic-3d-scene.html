@@ -474,18 +474,18 @@
                 <div class="control-item">
                     <label class="control-label">Histogram Windowing:</label>
                     <select id="histogram-mode-select" style="width: 100%; padding: 5px; background: #333; color: #fff; border: 1px solid #555;">
+                        <option value="manual" selected>Manual Range</option>
                         <option value="percentile">Percentile Range (p2-p98)</option>
                         <option value="stddev">Standard Deviation (±2σ)</option>
-                        <option value="manual">Manual Range</option>
                     </select>
                     <div style="margin-top: 8px; font-size: 0.8em; color: #888;">
-                        Current: <span id="histogram-range-info">Auto p2-p98</span>
+                        Current: <span id="histogram-range-info">Manual</span>
                     </div>
                 </div>
                 
                 <div class="control-item">
                     <label class="control-label">
-                        <input type="checkbox" id="symmetric-tf-checkbox" checked style="margin-right: 8px;">
+                        <input type="checkbox" id="symmetric-tf-checkbox" style="margin-right: 8px;">
                         Symmetric Transfer Function
                     </label>
                     <div style="font-size: 0.8em; color: #888; margin-top: 4px;">
@@ -495,7 +495,7 @@
             </div>
             
             <div class="control-group">
-                <h3>📊 Amplitude Statistics</h3>
+                <h3>📊 Amplitude Range</h3>
                 <div class="info-grid">
                     <div class="info-item">
                         <div class="info-label">Min Amplitude</div>
@@ -504,14 +504,6 @@
                     <div class="info-item">
                         <div class="info-label">Max Amplitude</div>
                         <div class="info-value" id="max-amplitude">252.0</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Current Range</div>
-                        <div class="info-value" id="current-range">Full</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">TF Updates</div>
-                        <div class="info-value" id="tf-updates">0</div>
                     </div>
                 </div>
             </div>
@@ -662,17 +654,6 @@
                 this.showSlices = true;
                 this.showWireframe = false;
                 this.showAxes = true;
-                this.sliceMetadata = {}; // Store metadata for VTK slices
-                
-                // Histogram-based windowing properties
-                this.histogramData = null;
-                this.lastTransferFunctionUpdate = 0;
-                this.transferFunctionThrottleMs = 100; // 10 Hz max
-                this.symmetricTransferFunction = true;
-                this.histogramWindowMode = 'percentile'; // 'percentile' or 'stddev'
-                this.percentileRange = { min: 2, max: 98 };
-                this.stddevMultiple = 2.0;
-                this.adaptiveWindowing = true;
                 
                 this.initializeElements();
                 this.initializeSliders();
@@ -967,16 +948,8 @@
                     this.statusElements.maxAmplitude.textContent = data.inline.maxValue.toFixed(1);
                 }
                 
-                // Store histogram data for windowing calculations
-                this.histogramData = data;
-                
                 // Create/update 3D slice planes
                 this.create3DSlices();
-                
-                // Apply histogram windowing if enabled
-                if (this.adaptiveWindowing && this.histogramWindowMode !== 'manual') {
-                    this.updateHistogramWindowing();
-                }
                 
                 console.log('📊 Updated 3D scene with real VDS amplitude data');
             }
@@ -1087,17 +1060,17 @@
                 console.log(`🎨 Creating seismic ${sliceType} slice: ${width}x${height}, range: ${minValue.toFixed(1)}-${maxValue.toFixed(1)}`);
                 
                 try {
-                    // Create vtkImageData with proper seismic amplitude data
+                    // Create seismic texture using vtkImageData - following VTK.js standard pattern
                     const imageData = vtk.Common.DataModel.vtkImageData.newInstance();
                     imageData.setDimensions(width, height, 1);
                     imageData.setSpacing(1.0, 1.0, 1.0);
                     imageData.setOrigin(0, 0, 0);
                     
-                    // Create amplitude scalar array - SIGNED Float32 for seismic polarity
+                    // Convert amplitude data to VTK format
                     const dataArray = vtk.Common.Core.vtkDataArray.newInstance({
                         name: 'SeismicAmplitude',
                         numberOfComponents: 1,
-                        values: new Float32Array(amplitudes), // Keep signed values for polarity
+                        values: new Float32Array(amplitudes),
                     });
                     
                     imageData.getPointData().setScalars(dataArray);
@@ -1150,37 +1123,21 @@
                     const mapper = vtk.Rendering.Core.vtkMapper.newInstance();
                     mapper.setInputData(plane);
                     mapper.setScalarRange(minValue, maxValue);
+                    mapper.setScalarModeToUsePointData();
                     
                     // Create actor
-                    const slice = vtk.Rendering.Core.vtkActor.newInstance();
-                    slice.setMapper(mapper);
+                    const actor = vtk.Rendering.Core.vtkActor.newInstance();
+                    actor.setMapper(mapper);
                     
-                    // Store metadata separately since VTK.js objects are not extensible
-                    if (!this.sliceMetadata) {
-                        this.sliceMetadata = {};
-                    }
-                    this.sliceMetadata[sliceType] = {
-                        originalRange: { min: minValue, max: maxValue },
-                        amplitudes: amplitudes,
-                        width: width,
-                        height: height
-                    };
-                    
-                    // Set seismic visualization properties for actor
-                    const property = slice.getProperty();
+                    // Set seismic visualization properties
+                    const property = actor.getProperty();
                     property.setOpacity(0.9);
                     
-                    // Apply initial colormap
-                    const initialColormap = this.createColormap(minValue, maxValue, 'seismic');
-                    if (mapper && initialColormap) {
-                        mapper.setLookupTable(initialColormap);
-                    }
-                    
                     // Position the slice in 3D seismic coordinate system
-                    this.positionSeismicSlice(slice, sliceType);
+                    this.positionSeismicSlice(actor, sliceType);
                     
-                    console.log(`✅ Created vtkImageSlice for ${sliceType} (${width}x${height}, W/L: ${initialWindow.toFixed(1)}/${initialLevel.toFixed(1)})`);
-                    return slice;
+                    console.log(`✅ Created textured seismic ${sliceType} slice`);
+                    return actor;
                     
                 } catch (error) {
                     console.error(`❌ Error creating seismic ${sliceType} slice:`, error);
@@ -1326,18 +1283,9 @@
             }
             
             setupSeismicControls() {
-                // Initialize histogram-based windowing system
+                // Store initial amplitude range
                 this.originalAmplitudeRange = { min: 28.0, max: 252.0 };
                 this.currentAmplitudeRange = { ...this.originalAmplitudeRange };
-                this.histogramData = null;
-                this.lastTransferFunctionUpdate = 0;
-                this.transferFunctionThrottleMs = 100; // 10 Hz max update rate
-                
-                // Initialize symmetric transfer function settings
-                this.symmetricTransferFunction = true;
-                this.histogramWindowMode = 'percentile'; // 'percentile' or 'sigma'
-                this.percentileRange = { min: 2, max: 98 }; // p2-p98
-                this.sigmaRange = 2.0; // +/- 2 sigma
                 
                 // Amplitude range controls
                 const ampMinSlider = document.getElementById('amplitude-min-slider');
@@ -1391,263 +1339,48 @@
                     this.refreshSlicesWithQuality();
                 });
                 
-                // Histogram windowing mode selection
+                // Histogram windowing controls
                 const histogramModeSelect = document.getElementById('histogram-mode-select');
+                const symmetricTfCheckbox = document.getElementById('symmetric-tf-checkbox');
+                const histogramRangeInfo = document.getElementById('histogram-range-info');
+                
                 histogramModeSelect.addEventListener('change', (e) => {
-                    this.histogramWindowMode = e.target.value === 'manual' ? 'manual' : e.target.value;
-                    console.log(`🔧 Histogram mode: ${this.histogramWindowMode}`);
-                    this.updateHistogramWindowing();
+                    const mode = e.target.value;
+                    histogramRangeInfo.textContent = mode === 'manual' ? 'Manual' : 
+                        mode === 'percentile' ? 'Auto p2-p98' : 'Auto ±2σ';
+                    console.log(`🔧 Histogram mode: ${mode}`);
+                    // TODO: Implement histogram windowing
                 });
                 
-                // Symmetric transfer function toggle
-                const symmetricCheckbox = document.getElementById('symmetric-tf-checkbox');
-                symmetricCheckbox.addEventListener('change', (e) => {
-                    this.symmetricTransferFunction = e.target.checked;
-                    console.log(`🔧 Symmetric TF: ${this.symmetricTransferFunction}`);
-                    this.updateHistogramWindowing();
+                symmetricTfCheckbox.addEventListener('change', (e) => {
+                    const isSymmetric = e.target.checked;
+                    console.log(`🔧 Symmetric TF: ${isSymmetric}`);
+                    // TODO: Implement symmetric transfer function
                 });
                 
                 this.currentColormap = 'seismic';
                 this.interpolationQuality = 'high';
-                
-            }
-            
-            computeHistogramRange(amplitudes) {
-                if (!amplitudes || amplitudes.length === 0) {
-                    return { min: 0, max: 1, center: 0 };
-                }
-                
-                const data = Array.from(amplitudes);
-                const n = data.length;
-                
-                let min, max, center = 0;
-                
-                switch (this.histogramWindowMode) {
-                    case 'percentile':
-                        const sorted = data.slice().sort((a, b) => a - b);
-                        const p2Index = Math.floor((this.percentileRange.min / 100) * n);
-                        const p98Index = Math.floor((this.percentileRange.max / 100) * n);
-                        
-                        min = sorted[Math.max(0, p2Index)];
-                        max = sorted[Math.min(n - 1, p98Index)];
-                        break;
-                        
-                    case 'stddev':
-                        const mean = data.reduce((sum, val) => sum + val, 0) / n;
-                        const variance = data.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / n;
-                        const stddev = Math.sqrt(variance);
-                        
-                        min = mean - this.stddevMultiple * stddev;
-                        max = mean + this.stddevMultiple * stddev;
-                        center = mean;
-                        break;
-                        
-                    case 'manual':
-                        // Use current amplitude range from sliders
-                        min = this.currentAmplitudeRange.min;
-                        max = this.currentAmplitudeRange.max;
-                        break;
-                        
-                    default:
-                        min = Math.min(...data);
-                        max = Math.max(...data);
-                }
-                
-                // For symmetric transfer functions, make range symmetric about center
-                if (this.symmetricTransferFunction && this.histogramWindowMode !== 'manual') {
-                    if (this.histogramWindowMode === 'percentile') {
-                        center = 0; // Assume seismic data is centered around 0
-                    }
-                    const maxAbs = Math.max(Math.abs(min - center), Math.abs(max - center));
-                    min = center - maxAbs;
-                    max = center + maxAbs;
-                }
-                
-                return { min, max, center };
-            }
-            
-            updateHistogramWindowing() {
-                // Throttle updates to maximum 10 Hz
-                const now = Date.now();
-                if (now - this.lastTransferFunctionUpdate < this.transferFunctionThrottleMs) {
-                    return;
-                }
-                this.lastTransferFunctionUpdate = now;
-                
-                if (!this.currentData || !this.histogramData) {
-                    return;
-                }
-                
-                // Update range info display
-                const histogramRangeInfo = document.getElementById('histogram-range-info');
-                let rangeText = '';
-                
-                switch (this.histogramWindowMode) {
-                    case 'percentile':
-                        rangeText = `Auto p${this.percentileRange.min}-p${this.percentileRange.max}`;
-                        break;
-                    case 'stddev':
-                        rangeText = `Auto ±${this.stddevMultiple}σ`;
-                        break;
-                    case 'manual':
-                        rangeText = 'Manual';
-                        break;
-                }
-                
-                if (this.symmetricTransferFunction && this.histogramWindowMode !== 'manual') {
-                    rangeText += ' (symmetric)';
-                }
-                
-                histogramRangeInfo.textContent = rangeText;
-                
-                // Apply histogram windowing to current slices
-                this.applyHistogramWindowing();
-            }
-            
-            applyHistogramWindowing() {
-                if (!this.sliceActors || !this.currentData) return;
-                
-                Object.entries(this.sliceActors).forEach(([sliceType, actor]) => {
-                    if (actor && this.currentData[sliceType] && this.currentData[sliceType].amplitudes) {
-                        const histogramRange = this.computeHistogramRange(this.currentData[sliceType].amplitudes);
-                        
-                        const mapper = actor.getMapper();
-                        const lookupTable = this.createHistogramColormap(
-                            histogramRange.min,
-                            histogramRange.max,
-                            histogramRange.center,
-                            this.currentColormap
-                        );
-                        
-                        mapper.setLookupTable(lookupTable);
-                        mapper.setScalarRange(histogramRange.min, histogramRange.max);
-                        
-                        console.log(`📊 Applied histogram windowing to ${sliceType}: [${histogramRange.min.toFixed(2)}, ${histogramRange.max.toFixed(2)}]`);
-                    }
-                });
-                
-                if (this.renderWindow) {
-                    this.renderWindow.getRenderWindow().render();
-                }
-            }
-            
-            createHistogramColormap(minValue, maxValue, center, type) {
-                // Use the existing createColormap function but with histogram-optimized parameters
-                const lookupTable = this.createColormap(minValue, maxValue, type);
-                
-                // For symmetric transfer functions, ensure the colormap is centered properly
-                if (this.symmetricTransferFunction && lookupTable && typeof center !== 'undefined') {
-                    // The colormap is already created with proper symmetric range
-                    // Additional symmetric adjustments could be made here if needed
-                }
-                
-                return lookupTable;
             }
             
             updateSliceColormaps() {
                 if (!this.sliceActors || !this.currentData) return;
                 
-                // Throttle transfer function updates to ≤10 Hz during interaction
-                const now = Date.now();
-                if (now - this.lastTransferFunctionUpdate < this.transferFunctionThrottleMs) {
-                    return;
-                }
-                this.lastTransferFunctionUpdate = now;
-                
-                Object.entries(this.sliceActors).forEach(([sliceType, slice]) => {
-                    if (slice && this.sliceMetadata && this.sliceMetadata[sliceType]) {
-                        const metadata = this.sliceMetadata[sliceType];
+                Object.entries(this.sliceActors).forEach(([sliceType, actor]) => {
+                    if (actor && this.currentData[sliceType]) {
+                        const mapper = actor.getMapper();
+                        const lookupTable = this.createColormap(
+                            this.currentAmplitudeRange.min,
+                            this.currentAmplitudeRange.max,
+                            this.currentColormap
+                        );
                         
-                        // Compute histogram and update amplitude range if enabled
-                        let windowMin = this.currentAmplitudeRange.min;
-                        let windowMax = this.currentAmplitudeRange.max;
-                        
-                        if (this.histogramWindowMode && metadata.amplitudes) {
-                            const histogramRange = this.computeHistogramRange(metadata.amplitudes);
-                            if (histogramRange) {
-                                windowMin = histogramRange.min;
-                                windowMax = histogramRange.max;
-                                this.currentAmplitudeRange = histogramRange;
-                            }
-                        }
-                        
-                        // Apply proper colormap using LUT for polydata pipeline
-                        const lookupTable = this.createColormap(windowMin, windowMax, this.currentColormap);
-                        
-                        const mapper = slice.getMapper();
-                        if (mapper && lookupTable) {
-                            mapper.setLookupTable(lookupTable);
-                            mapper.setScalarRange(windowMin, windowMax);
-                        }
-                        
-                        console.log(`🎨 Updated ${sliceType} range: ${windowMin.toFixed(1)}-${windowMax.toFixed(1)}`);
+                        mapper.setLookupTable(lookupTable);
+                        mapper.setScalarRange(this.currentAmplitudeRange.min, this.currentAmplitudeRange.max);
                     }
                 });
                 
                 this.renderWindow.getRenderWindow().render();
-                
-                // Update UI statistics
-                const currentRangeEl = document.getElementById('current-range');
-                const tfUpdatesEl = document.getElementById('tf-updates');
-                if (currentRangeEl) {
-                    currentRangeEl.textContent = `${this.currentAmplitudeRange.min.toFixed(1)} - ${this.currentAmplitudeRange.max.toFixed(1)}`;
-                }
-                if (tfUpdatesEl) {
-                    const currentUpdates = parseInt(tfUpdatesEl.textContent) + 1;
-                    tfUpdatesEl.textContent = currentUpdates;
-                }
-                
                 console.log(`🎨 Updated colormaps: ${this.currentColormap} (${this.currentAmplitudeRange.min.toFixed(1)}-${this.currentAmplitudeRange.max.toFixed(1)})`);
-            }
-            
-            computeHistogramRange(amplitudes) {
-                if (!amplitudes || amplitudes.length === 0) return null;
-                
-                // Convert to regular array if typed array
-                const data = Array.isArray(amplitudes) ? amplitudes : Array.from(amplitudes);
-                
-                if (this.histogramWindowMode === 'percentile') {
-                    // Compute p2-p98 percentile range
-                    const sorted = data.slice().sort((a, b) => a - b);
-                    const n = sorted.length;
-                    
-                    const p2Index = Math.floor((this.percentileRange.min / 100) * n);
-                    const p98Index = Math.floor((this.percentileRange.max / 100) * n);
-                    
-                    const min = sorted[Math.max(0, p2Index)];
-                    const max = sorted[Math.min(n - 1, p98Index)];
-                    
-                    console.log(`📊 Histogram p${this.percentileRange.min}-p${this.percentileRange.max}: ${min.toFixed(1)} to ${max.toFixed(1)}`);
-                    
-                    if (this.symmetricTransferFunction) {
-                        // Make symmetric about zero
-                        const absMax = Math.max(Math.abs(min), Math.abs(max));
-                        return { min: -absMax, max: absMax };
-                    }
-                    
-                    return { min, max };
-                } else if (this.histogramWindowMode === 'sigma') {
-                    // Compute mean and standard deviation
-                    const mean = data.reduce((sum, val) => sum + val, 0) / data.length;
-                    const variance = data.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / data.length;
-                    const stdDev = Math.sqrt(variance);
-                    
-                    const min = mean - this.sigmaRange * stdDev;
-                    const max = mean + this.sigmaRange * stdDev;
-                    
-                    console.log(`📊 Histogram ±${this.sigmaRange}σ: ${min.toFixed(1)} to ${max.toFixed(1)} (μ=${mean.toFixed(1)}, σ=${stdDev.toFixed(1)})`);
-                    
-                    if (this.symmetricTransferFunction) {
-                        // Make symmetric about mean (or zero if mean is close to zero)
-                        const center = Math.abs(mean) < stdDev * 0.1 ? 0 : mean;
-                        const radius = Math.max(Math.abs(min - center), Math.abs(max - center));
-                        return { min: center - radius, max: center + radius };
-                    }
-                    
-                    return { min, max };
-                }
-                
-                return null;
             }
             
             createColormap(minValue, maxValue, type) {
@@ -1664,36 +1397,17 @@
                     // Fallback to a simple grayscale lookup table
                     return this.createSimpleGrayscaleLookupTable(minValue, maxValue);
                 }
-                
                 const range = maxValue - minValue;
-                let center;
-                
-                // Apply symmetric transfer function about amplitude 0
-                if (this.symmetricTransferFunction && minValue < 0 && maxValue > 0) {
-                    center = 0; // Center at zero for symmetric seismic data
-                } else {
-                    center = minValue + range * 0.5; // Traditional center
-                }
+                const center = minValue + range * 0.5;
                 
                 switch (type) {
                     case 'seismic':
-                        // Enhanced Blue-White-Red seismic colormap with symmetric properties
-                        if (this.symmetricTransferFunction && minValue < 0 && maxValue > 0) {
-                            // Symmetric colormap centered at zero
-                            const maxAbs = Math.max(Math.abs(minValue), Math.abs(maxValue));
-                            lookupTable.addRGBPoint(-maxAbs, 0.0, 0.0, 0.8);     // Deep blue (negative)
-                            lookupTable.addRGBPoint(-maxAbs * 0.5, 0.3, 0.3, 1.0); // Light blue
-                            lookupTable.addRGBPoint(0, 1.0, 1.0, 1.0);              // White (zero)
-                            lookupTable.addRGBPoint(maxAbs * 0.5, 1.0, 0.3, 0.3);   // Light red
-                            lookupTable.addRGBPoint(maxAbs, 0.8, 0.0, 0.0);         // Deep red (positive)
-                        } else {
-                            // Traditional blue-white-red colormap
-                            lookupTable.addRGBPoint(minValue, 0.0, 0.0, 0.8);
-                            lookupTable.addRGBPoint(center - range * 0.25, 0.3, 0.3, 1.0);
-                            lookupTable.addRGBPoint(center, 1.0, 1.0, 1.0);
-                            lookupTable.addRGBPoint(center + range * 0.25, 1.0, 0.3, 0.3);
-                            lookupTable.addRGBPoint(maxValue, 0.8, 0.0, 0.0);
-                        }
+                        // Blue-White-Red seismic colormap
+                        lookupTable.addRGBPoint(minValue, 0.0, 0.0, 0.8);
+                        lookupTable.addRGBPoint(center - range * 0.25, 0.3, 0.3, 1.0);
+                        lookupTable.addRGBPoint(center, 1.0, 1.0, 1.0);
+                        lookupTable.addRGBPoint(center + range * 0.25, 1.0, 0.3, 0.3);
+                        lookupTable.addRGBPoint(maxValue, 0.8, 0.0, 0.0);
                         break;
                         
                     case 'grayscale':
@@ -1725,7 +1439,7 @@
                 if (!this.sliceActors) return;
                 
                 Object.values(this.sliceActors).forEach(actor => {
-                    if (actor && actor.getProperty) {
+                    if (actor) {
                         actor.getProperty().setOpacity(opacity);
                     }
                 });
