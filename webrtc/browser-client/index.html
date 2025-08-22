@@ -70,42 +70,6 @@
             
             <!-- Video Overlay -->
             <div class="video-overlay">
-                <!-- Slice Navigation HUD -->
-                <div id="slice-hud" class="slice-hud">
-                    <div class="hud-section">
-                        <div class="hud-title">📊 Seismic Navigation</div>
-                        <div class="hud-info">
-                            <div class="hud-item">
-                                <span class="hud-label">Orientation:</span>
-                                <span id="slice-orientation">Inline</span>
-                            </div>
-                            <div class="hud-item">
-                                <span class="hud-label">Slice:</span>
-                                <span id="slice-current">--</span> / <span id="slice-total">--</span>
-                            </div>
-                            <div class="hud-item">
-                                <span class="hud-label">Survey:</span>
-                                <span id="survey-dimensions">-- × -- × --</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="hud-controls">
-                        <button id="prev-slice-btn" class="hud-btn" title="Previous Slice (←)">◀</button>
-                        <button id="play-pause-slice-btn" class="hud-btn" title="Play/Pause (Space)">⏸️</button>
-                        <button id="next-slice-btn" class="hud-btn" title="Next Slice (→)">▶</button>
-                        <select id="slice-orientation-select" class="hud-select" title="Slice Orientation">
-                            <option value="inline">Inline (XZ)</option>
-                            <option value="xline">Xline (YZ)</option>
-                            <option value="zslice">Time/Depth (XY)</option>
-                        </select>
-                    </div>
-                    <div class="hud-shortcuts">
-                        <div style="font-weight: 600; margin-bottom: 0.25rem;">Keyboard Shortcuts:</div>
-                        <div>← → Navigate inline | ↑ ↓ Navigate xline</div>
-                        <div>PgUp/PgDn Navigate time/depth | Space Play/pause</div>
-                        <div>I Inline | X Xline | Z Time/depth</div>
-                    </div>
-                </div>
 
                 <!-- Performance Info -->
                 <div id="video-info" class="video-info">

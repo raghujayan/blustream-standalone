@@ -287,6 +287,114 @@
         .hidden {
             display: none !important;
         }
+        
+        /* Enhanced Slice Navigation HUD */
+        .slice-hud {
+            position: absolute;
+            top: 80px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            font-size: 0.9em;
+            z-index: 150;
+            min-width: 320px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        .hud-section {
+            margin-bottom: 16px;
+        }
+        
+        .hud-title {
+            color: #ffd700;
+            font-weight: 600;
+            font-size: 1.1em;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .hud-info {
+            display: grid;
+            gap: 8px;
+        }
+        
+        .hud-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .hud-label {
+            color: #ccc;
+            font-size: 0.9em;
+        }
+        
+        .hud-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+        
+        .hud-btn {
+            background: #333;
+            color: #fff;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1.2em;
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+        }
+        
+        .hud-btn:hover {
+            background: #555;
+            border-color: #00bcd4;
+            transform: translateY(-1px);
+        }
+        
+        .hud-btn:active {
+            transform: translateY(0);
+        }
+        
+        .hud-select {
+            background: #333;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            outline: none;
+        }
+        
+        .hud-select:focus {
+            border-color: #00bcd4;
+        }
+        
+        .hud-shortcuts {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 0.8em;
+            line-height: 1.4;
+            color: #bbb;
+        }
+        
+        @keyframes slice-update {
+            0% { background: rgba(0, 188, 212, 0.2); }
+            100% { background: transparent; }
+        }
+        
+        .hud-item.updated {
+            animation: slice-update 0.3s ease;
+        }
     </style>
 </head>
 <body>
@@ -423,7 +531,44 @@
             <!-- VTK.js 3D Container -->
             <div id="vtk-container"></div>
             
-            <!-- Slice Information -->
+            <!-- Enhanced Slice Navigation HUD -->
+            <div id="slice-hud" class="slice-hud">
+                <div class="hud-section">
+                    <div class="hud-title">📊 Seismic Navigation</div>
+                    <div class="hud-info">
+                        <div class="hud-item">
+                            <span class="hud-label">Orientation:</span>
+                            <span id="slice-orientation">Inline</span>
+                        </div>
+                        <div class="hud-item">
+                            <span class="hud-label">Slice:</span>
+                            <span id="slice-current">512</span> / <span id="slice-total">1024</span>
+                        </div>
+                        <div class="hud-item">
+                            <span class="hud-label">Survey:</span>
+                            <span id="survey-dimensions">1024 × 512 × 512</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="hud-controls">
+                    <button id="prev-slice-btn" class="hud-btn" title="Previous Slice (←)">◀</button>
+                    <button id="play-pause-slice-btn" class="hud-btn" title="Play/Pause (Space)">⏸️</button>
+                    <button id="next-slice-btn" class="hud-btn" title="Next Slice (→)">▶</button>
+                    <select id="slice-orientation-select" class="hud-select" title="Slice Orientation">
+                        <option value="inline">Inline (XZ)</option>
+                        <option value="xline">Xline (YZ)</option>
+                        <option value="zslice">Time/Depth (XY)</option>
+                    </select>
+                </div>
+                <div class="hud-shortcuts">
+                    <div style="font-weight: 600; margin-bottom: 0.25rem;">Keyboard Shortcuts:</div>
+                    <div>← → Navigate inline | ↑ ↓ Navigate xline</div>
+                    <div>PgUp/PgDn Navigate time/depth | Space Play/pause</div>
+                    <div>I Inline | X Xline | Z Time/depth</div>
+                </div>
+            </div>
+            
+            <!-- Original Slice Information (kept for compatibility) -->
             <div class="slice-info">
                 <h4>Current Slices</h4>
                 <div>Inline: <span id="current-inline">512</span></div>
@@ -1365,12 +1510,200 @@
             }
         }
         
+        // Enhanced Slice Navigation Controller
+        class SliceNavigationController {
+            constructor(scene) {
+                this.scene = scene;
+                this.currentOrientation = 'inline';
+                this.isAnimating = false;
+                this.animationInterval = null;
+                this.surveyDimensions = { inline: 1024, xline: 512, zslice: 512 };
+                
+                this.initializeElements();
+                this.bindEvents();
+                this.setupKeyboardShortcuts();
+                this.updateHUD();
+            }
+            
+            initializeElements() {
+                this.elements = {
+                    orientation: document.getElementById('slice-orientation'),
+                    current: document.getElementById('slice-current'),
+                    total: document.getElementById('slice-total'),
+                    dimensions: document.getElementById('survey-dimensions'),
+                    prevBtn: document.getElementById('prev-slice-btn'),
+                    nextBtn: document.getElementById('next-slice-btn'),
+                    playPauseBtn: document.getElementById('play-pause-slice-btn'),
+                    orientationSelect: document.getElementById('slice-orientation-select')
+                };
+            }
+            
+            bindEvents() {
+                // HUD controls
+                this.elements.prevBtn.addEventListener('click', () => this.prevSlice());
+                this.elements.nextBtn.addEventListener('click', () => this.nextSlice());
+                this.elements.playPauseBtn.addEventListener('click', () => this.toggleAnimation());
+                this.elements.orientationSelect.addEventListener('change', (e) => {
+                    this.setSliceOrientation(e.target.value);
+                });
+                
+                // Connect to existing sliders
+                document.getElementById('inline-slider').addEventListener('input', () => {
+                    if (this.currentOrientation === 'inline') this.updateHUD();
+                });
+                document.getElementById('crossline-slider').addEventListener('input', () => {
+                    if (this.currentOrientation === 'xline') this.updateHUD();
+                });
+                document.getElementById('timeslice-slider').addEventListener('input', () => {
+                    if (this.currentOrientation === 'zslice') this.updateHUD();
+                });
+            }
+            
+            setupKeyboardShortcuts() {
+                document.addEventListener('keydown', (e) => {
+                    // Prevent shortcuts when typing in inputs
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+                    
+                    switch(e.key) {
+                        case 'ArrowLeft':
+                            e.preventDefault();
+                            if (this.currentOrientation === 'inline') this.prevSlice();
+                            break;
+                        case 'ArrowRight':
+                            e.preventDefault();
+                            if (this.currentOrientation === 'inline') this.nextSlice();
+                            break;
+                        case 'ArrowUp':
+                            e.preventDefault();
+                            if (this.currentOrientation === 'xline') this.prevSlice();
+                            break;
+                        case 'ArrowDown':
+                            e.preventDefault();
+                            if (this.currentOrientation === 'xline') this.nextSlice();
+                            break;
+                        case 'PageUp':
+                            e.preventDefault();
+                            if (this.currentOrientation === 'zslice') this.prevSlice();
+                            break;
+                        case 'PageDown':
+                            e.preventDefault();
+                            if (this.currentOrientation === 'zslice') this.nextSlice();
+                            break;
+                        case ' ':
+                            e.preventDefault();
+                            this.toggleAnimation();
+                            break;
+                        case 'i':
+                        case 'I':
+                            e.preventDefault();
+                            this.setSliceOrientation('inline');
+                            break;
+                        case 'x':
+                        case 'X':
+                            e.preventDefault();
+                            this.setSliceOrientation('xline');
+                            break;
+                        case 'z':
+                        case 'Z':
+                            e.preventDefault();
+                            this.setSliceOrientation('zslice');
+                            break;
+                    }
+                });
+            }
+            
+            prevSlice() {
+                const slider = this.getCurrentSlider();
+                if (slider) {
+                    const newValue = Math.max(parseInt(slider.min), parseInt(slider.value) - 1);
+                    slider.value = newValue;
+                    slider.dispatchEvent(new Event('input'));
+                    this.updateHUD();
+                }
+            }
+            
+            nextSlice() {
+                const slider = this.getCurrentSlider();
+                if (slider) {
+                    const newValue = Math.min(parseInt(slider.max), parseInt(slider.value) + 1);
+                    slider.value = newValue;
+                    slider.dispatchEvent(new Event('input'));
+                    this.updateHUD();
+                }
+            }
+            
+            getCurrentSlider() {
+                switch(this.currentOrientation) {
+                    case 'inline': return document.getElementById('inline-slider');
+                    case 'xline': return document.getElementById('crossline-slider');
+                    case 'zslice': return document.getElementById('timeslice-slider');
+                    default: return null;
+                }
+            }
+            
+            setSliceOrientation(orientation) {
+                this.currentOrientation = orientation;
+                this.elements.orientationSelect.value = orientation;
+                this.updateHUD();
+                
+                // Visual feedback
+                const orientationItem = document.querySelector('.hud-item:first-child');
+                orientationItem.classList.add('updated');
+                setTimeout(() => orientationItem.classList.remove('updated'), 300);
+            }
+            
+            toggleAnimation() {
+                if (this.isAnimating) {
+                    clearInterval(this.animationInterval);
+                    this.elements.playPauseBtn.textContent = '▶️';
+                    this.isAnimating = false;
+                } else {
+                    this.animationInterval = setInterval(() => {
+                        const slider = this.getCurrentSlider();
+                        if (slider) {
+                            let newValue = parseInt(slider.value) + 1;
+                            if (newValue > parseInt(slider.max)) {
+                                newValue = parseInt(slider.min);
+                            }
+                            slider.value = newValue;
+                            slider.dispatchEvent(new Event('input'));
+                            this.updateHUD();
+                        }
+                    }, 200);
+                    this.elements.playPauseBtn.textContent = '⏸️';
+                    this.isAnimating = true;
+                }
+            }
+            
+            updateHUD() {
+                const slider = this.getCurrentSlider();
+                if (!slider) return;
+                
+                const orientationNames = {
+                    'inline': 'Inline',
+                    'xline': 'Xline', 
+                    'zslice': 'Time/Depth'
+                };
+                
+                this.elements.orientation.textContent = orientationNames[this.currentOrientation];
+                this.elements.current.textContent = slider.value;
+                this.elements.total.textContent = slider.max;
+                this.elements.dimensions.textContent = `${this.surveyDimensions.inline} × ${this.surveyDimensions.xline} × ${this.surveyDimensions.zslice}`;
+            }
+        }
+        
         // Initialize the 3D scene when the page loads
         document.addEventListener('DOMContentLoaded', () => {
             console.log('🎬 BluStream Phase 5 - Interactive 3D Seismic Scene');
             console.log('===================================================');
             
-            new Seismic3DScene();
+            const scene = new Seismic3DScene();
+            
+            // Initialize enhanced slice navigation
+            setTimeout(() => {
+                new SliceNavigationController(scene);
+                console.log('🎮 Enhanced slice navigation initialized');
+            }, 1000);
         });
     </script>
 </body>
