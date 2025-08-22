@@ -36,6 +36,10 @@ endif
 CXXFLAGS = -std=c++17 -Wall -Wextra -O2
 INCLUDES = -Icommon/include -Iserver/include $(FFMPEG_INCLUDES)
 
+# Build configurations
+DEBUG_FLAGS = -g -DDEBUG
+RELEASE_FLAGS = -O3 -DNDEBUG -DBLUSTREAM_RELEASE_BUILD
+
 # Add HueSpace and WebRTC includes for server builds
 ifeq ($(PLATFORM),linux)
     INCLUDES += $(HUESPACE_INCLUDES) $(WEBRTC_INCLUDES)
@@ -61,9 +65,11 @@ SERVER_4B_SRC = server/src/phase4b_main.cpp server/src/streaming_server.cpp serv
 SERVER_5_SRC = server/src/phase5_main.cpp server/src/webrtc_server.cpp server/src/webrtc_session.cpp server/src/vds_manager.cpp server/src/hardware_encoder.cpp
 
 .PHONY: all clean client server server-4b server-5 test frames-dir sync-to-remote sync-from-remote test-hw-encoding
+.PHONY: client-debug client-release server-debug server-release
 
 all: $(DEFAULT_TARGET)
 
+# Standard targets (optimized but allow DEBUG_IO via environment)
 client: $(CLIENT_TARGET)
 
 server: $(SERVER_TARGET)
@@ -73,6 +79,20 @@ server-4b: $(SERVER_4B_TARGET)
 server-5: $(SERVER_5_TARGET)
 
 test-hw-encoding: $(HW_ENCODER_TEST_TARGET)
+
+# Debug builds (enable all debugging features)
+client-debug: CXXFLAGS += $(DEBUG_FLAGS)
+client-debug: $(CLIENT_TARGET)
+
+server-debug: CXXFLAGS += $(DEBUG_FLAGS)
+server-debug: $(SERVER_TARGET)
+
+# Release builds (force DEBUG_IO disabled, maximum optimization)
+client-release: CXXFLAGS += $(RELEASE_FLAGS)
+client-release: $(CLIENT_TARGET)
+
+server-release: CXXFLAGS += $(RELEASE_FLAGS)
+server-release: $(SERVER_TARGET)
 
 $(CLIENT_TARGET): $(CLIENT_SRC) $(COMMON_SRC) | $(CLIENT_BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(CLIENT_SRC) $(COMMON_SRC) $(FFMPEG_LIBS) -o $@
