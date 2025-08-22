@@ -659,6 +659,7 @@
                 this.showSlices = true;
                 this.showWireframe = false;
                 this.showAxes = true;
+                this.sliceMetadata = {}; // Store metadata for VTK slices
                 
                 this.initializeElements();
                 this.initializeSliders();
@@ -1093,10 +1094,16 @@
                     const slice = vtk.Rendering.Core.vtkImageSlice.newInstance();
                     slice.setMapper(mapper);
                     
-                    // Store original range for histogram windowing
-                    slice.originalRange = { min: minValue, max: maxValue };
-                    slice.sliceType = sliceType;
-                    slice.amplitudes = amplitudes; // Store for histogram computation
+                    // Store metadata separately since VTK.js objects are not extensible
+                    if (!this.sliceMetadata) {
+                        this.sliceMetadata = {};
+                    }
+                    this.sliceMetadata[sliceType] = {
+                        originalRange: { min: minValue, max: maxValue },
+                        amplitudes: amplitudes,
+                        width: width,
+                        height: height
+                    };
                     
                     // Set initial window/level (will be updated by histogram windowing)
                     const initialWindow = maxValue - minValue;
@@ -1355,13 +1362,15 @@
                 this.lastTransferFunctionUpdate = now;
                 
                 Object.entries(this.sliceActors).forEach(([sliceType, slice]) => {
-                    if (slice && slice.amplitudes) {
+                    if (slice && this.sliceMetadata && this.sliceMetadata[sliceType]) {
+                        const metadata = this.sliceMetadata[sliceType];
+                        
                         // Compute histogram and update amplitude range if enabled
                         let windowMin = this.currentAmplitudeRange.min;
                         let windowMax = this.currentAmplitudeRange.max;
                         
-                        if (this.histogramWindowMode && slice.amplitudes) {
-                            const histogramRange = this.computeHistogramRange(slice.amplitudes);
+                        if (this.histogramWindowMode && metadata.amplitudes) {
+                            const histogramRange = this.computeHistogramRange(metadata.amplitudes);
                             if (histogramRange) {
                                 windowMin = histogramRange.min;
                                 windowMax = histogramRange.max;
