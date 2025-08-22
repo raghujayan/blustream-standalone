@@ -1060,6 +1060,14 @@
                 this.renderWindow.getRenderWindow().render();
                 console.log('✅ Render complete');
                 
+                // Preserve user's colormap and histogram settings after creating new slices
+                console.log('🔧 Applying user settings to new slices...');
+                if (this.histogramMode !== 'manual') {
+                    this.applyHistogramWindowing();
+                } else {
+                    this.updateSliceColormaps();
+                }
+                
                 // Add mouse interaction info
                 console.log('🖱️ Mouse controls: Left=rotate, Right=zoom, Middle=pan');
             }
