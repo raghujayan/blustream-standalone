@@ -1081,17 +1081,57 @@
                     
                     imageData.getPointData().setScalars(dataArray);
                     
-                    // Create proper vtkImageMapper for seismic slice visualization
-                    const mapper = vtk.Rendering.Core.vtkImageMapper.newInstance();
-                    mapper.setInputData(imageData);
+                    // Create optimized plane for seismic data - balance quality vs performance
+                    const resolution = Math.min(32, Math.min(width, height)); // Reduced for performance
+                    const planeSource = vtk.Filters.Sources.vtkPlaneSource.newInstance({
+                        xResolution: resolution, 
+                        yResolution: resolution,
+                        origin: [-0.5, -0.5, 0],
+                        point1: [0.5, -0.5, 0],
+                        point2: [-0.5, 0.5, 0]
+                    });
                     
-                    // Set slicing mode based on slice type
-                    if (vtk.Rendering.Core.vtkImageMapper.SlicingMode) {
-                        mapper.setSlicingMode(vtk.Rendering.Core.vtkImageMapper.SlicingMode.Z); // K-direction
+                    const plane = planeSource.getOutputData();
+                    const points = plane.getPoints();
+                    const numPoints = points.getNumberOfPoints();
+                    const pointData = points.getData();
+                    
+                    // Create scalar array for amplitude data
+                    const scalarArray = vtk.Common.Core.vtkDataArray.newInstance({
+                        name: 'SeismicAmplitude',
+                        numberOfComponents: 1,
+                        size: numPoints
+                    });
+                    
+                    // Map plane vertices to amplitude data with optimized sampling
+                    const scalars = new Float32Array(numPoints);
+                    const widthMinus1 = width - 1;
+                    const heightMinus1 = height - 1;
+                    
+                    for (let i = 0; i < numPoints; i++) {
+                        const pointIndex = i * 3;
+                        // Convert plane coordinates [-0.5, 0.5] to texture coordinates [0, 1]
+                        const u = pointData[pointIndex] + 0.5;     // X coordinate
+                        const v = pointData[pointIndex + 1] + 0.5; // Y coordinate
+                        
+                        // Sample amplitude data with bounds checking
+                        const x = Math.max(0, Math.min(widthMinus1, Math.floor(u * widthMinus1)));
+                        const y = Math.max(0, Math.min(heightMinus1, Math.floor(v * heightMinus1)));
+                        const ampIndex = y * width + x;
+                        
+                        scalars[i] = amplitudes[ampIndex] || minValue;
                     }
                     
-                    // Create vtkImageSlice for proper seismic image rendering
-                    const slice = vtk.Rendering.Core.vtkImageSlice.newInstance();
+                    scalarArray.setData(scalars);
+                    plane.getPointData().setScalars(scalarArray);
+                    
+                    // Create mapper with scalar visualization
+                    const mapper = vtk.Rendering.Core.vtkMapper.newInstance();
+                    mapper.setInputData(plane);
+                    mapper.setScalarRange(minValue, maxValue);
+                    
+                    // Create actor
+                    const slice = vtk.Rendering.Core.vtkActor.newInstance();
                     slice.setMapper(mapper);
                     
                     // Store metadata separately since VTK.js objects are not extensible
@@ -1105,16 +1145,15 @@
                         height: height
                     };
                     
-                    // Set initial window/level (will be updated by histogram windowing)
-                    const initialWindow = maxValue - minValue;
-                    const initialLevel = (maxValue + minValue) / 2;
-                    
+                    // Set seismic visualization properties for actor
                     const property = slice.getProperty();
-                    property.setColorWindow(initialWindow);
-                    property.setColorLevel(initialLevel);
-                    
-                    // Set opacity for seismic visualization
                     property.setOpacity(0.9);
+                    
+                    // Apply initial colormap
+                    const initialColormap = this.createColormap(minValue, maxValue, 'seismic');
+                    if (mapper && initialColormap) {
+                        mapper.setLookupTable(initialColormap);
+                    }
                     
                     // Position the slice in 3D seismic coordinate system
                     this.positionSeismicSlice(slice, sliceType);
@@ -1378,23 +1417,16 @@
                             }
                         }
                         
-                        // Apply proper window/level controls for seismic visualization
-                        const colorWindow = windowMax - windowMin;
-                        const colorLevel = (windowMax + windowMin) / 2;
+                        // Apply proper colormap using LUT for polydata pipeline
+                        const lookupTable = this.createColormap(windowMin, windowMax, this.currentColormap);
                         
-                        const property = slice.getProperty();
-                        property.setColorWindow(colorWindow);
-                        property.setColorLevel(colorLevel);
-                        
-                        // Apply symmetric transfer function if enabled
-                        if (this.symmetricTransferFunction && windowMin < 0 && windowMax > 0) {
-                            // For symmetric seismic data, center level at zero
-                            const maxAbs = Math.max(Math.abs(windowMin), Math.abs(windowMax));
-                            property.setColorWindow(2 * maxAbs); // Full symmetric range
-                            property.setColorLevel(0); // Center at zero
+                        const mapper = slice.getMapper();
+                        if (mapper && lookupTable) {
+                            mapper.setLookupTable(lookupTable);
+                            mapper.setScalarRange(windowMin, windowMax);
                         }
                         
-                        console.log(`🎨 Updated ${sliceType} W/L: ${colorWindow.toFixed(1)}/${colorLevel.toFixed(1)}`);
+                        console.log(`🎨 Updated ${sliceType} range: ${windowMin.toFixed(1)}-${windowMax.toFixed(1)}`);
                     }
                 });
                 
@@ -1538,9 +1570,9 @@
             updateSliceOpacity(opacity) {
                 if (!this.sliceActors) return;
                 
-                Object.values(this.sliceActors).forEach(slice => {
-                    if (slice && slice.getProperty) {
-                        slice.getProperty().setOpacity(opacity);
+                Object.values(this.sliceActors).forEach(actor => {
+                    if (actor && actor.getProperty) {
+                        actor.getProperty().setOpacity(opacity);
                     }
                 });
                 
