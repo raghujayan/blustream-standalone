@@ -1095,74 +1095,62 @@
                     
                     imageData.getPointData().setScalars(dataArray);
                     
-                    // Create plane with quality based on user setting and data size
-                    let resolution;
-                    switch (this.interpolationQuality) {
-                        case 'high':
-                            resolution = Math.min(128, Math.max(64, Math.min(width, height))); // High quality
-                            break;
-                        case 'medium':
-                            resolution = Math.min(64, Math.max(32, Math.min(width, height) / 2)); // Medium quality
-                            break;
-                        case 'low':
-                        default:
-                            resolution = Math.min(32, Math.max(16, Math.min(width, height) / 4)); // Low quality (fastest)
-                            break;
-                    }
+                    // Use direct texture mapping for full seismic resolution
+                    console.log(`🎨 Creating high-resolution ${sliceType} slice with direct texture mapping (${width}x${height})`);
                     
-                    console.log(`🎨 Creating ${sliceType} plane with ${resolution}x${resolution} resolution (${this.interpolationQuality} quality)`);
-                    
+                    // Create a simple 2-triangle plane for texture mapping
                     const planeSource = vtk.Filters.Sources.vtkPlaneSource.newInstance({
-                        xResolution: resolution, 
-                        yResolution: resolution,
+                        xResolution: 1,  // Just 2 triangles for texture mapping
+                        yResolution: 1,
                         origin: [-0.5, -0.5, 0],
                         point1: [0.5, -0.5, 0],
                         point2: [-0.5, 0.5, 0]
                     });
                     
                     const plane = planeSource.getOutputData();
-                    const points = plane.getPoints();
-                    const numPoints = points.getNumberOfPoints();
-                    const pointData = points.getData();
                     
-                    // Create scalar array for amplitude data
-                    const scalarArray = vtk.Common.Core.vtkDataArray.newInstance({
+                    // Add texture coordinates for proper mapping
+                    const tcoords = vtk.Common.Core.vtkDataArray.newInstance({
+                        numberOfComponents: 2,
+                        values: new Float32Array([
+                            0.0, 0.0,  // Bottom-left
+                            1.0, 0.0,  // Bottom-right
+                            0.0, 1.0,  // Top-left
+                            1.0, 1.0   // Top-right
+                        ]),
+                        name: 'TextureCoordinates',
+                    });
+                    plane.getPointData().setTCoords(tcoords);
+                    
+                    // Set the full-resolution amplitude data as point data
+                    const fullResScalars = vtk.Common.Core.vtkDataArray.newInstance({
                         name: 'SeismicAmplitude',
                         numberOfComponents: 1,
-                        size: numPoints
+                        values: new Float32Array(amplitudes),
                     });
                     
-                    // Map plane vertices to amplitude data with optimized sampling
-                    const scalars = new Float32Array(numPoints);
-                    const widthMinus1 = width - 1;
-                    const heightMinus1 = height - 1;
+                    // Create imageData for texture
+                    const textureImageData = vtk.Common.DataModel.vtkImageData.newInstance();
+                    textureImageData.setDimensions(width, height, 1);
+                    textureImageData.setSpacing(1.0, 1.0, 1.0);
+                    textureImageData.setOrigin(0, 0, 0);
+                    textureImageData.getPointData().setScalars(fullResScalars);
                     
-                    for (let i = 0; i < numPoints; i++) {
-                        const pointIndex = i * 3;
-                        // Convert plane coordinates [-0.5, 0.5] to texture coordinates [0, 1]
-                        const u = pointData[pointIndex] + 0.5;     // X coordinate
-                        const v = pointData[pointIndex + 1] + 0.5; // Y coordinate
-                        
-                        // Sample amplitude data with bounds checking
-                        const x = Math.max(0, Math.min(widthMinus1, Math.floor(u * widthMinus1)));
-                        const y = Math.max(0, Math.min(heightMinus1, Math.floor(v * heightMinus1)));
-                        const ampIndex = y * width + x;
-                        
-                        scalars[i] = amplitudes[ampIndex] || minValue;
-                    }
+                    // Create texture
+                    const texture = vtk.Rendering.Core.vtkTexture.newInstance();
+                    texture.setInputData(textureImageData);
+                    texture.setInterpolate(this.interpolationQuality === 'high');
                     
-                    scalarArray.setData(scalars);
-                    plane.getPointData().setScalars(scalarArray);
-                    
-                    // Create mapper with scalar visualization
+                    // Create mapper with texture support
                     const mapper = vtk.Rendering.Core.vtkMapper.newInstance();
                     mapper.setInputData(plane);
                     mapper.setScalarRange(minValue, maxValue);
                     mapper.setScalarModeToUsePointData();
                     
-                    // Create actor
+                    // Create actor with texture
                     const actor = vtk.Rendering.Core.vtkActor.newInstance();
                     actor.setMapper(mapper);
+                    actor.addTexture(texture);
                     
                     // Set seismic visualization properties
                     const property = actor.getProperty();
