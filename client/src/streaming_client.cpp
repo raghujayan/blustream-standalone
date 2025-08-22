@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstring>
 #include <fstream>
+#include <cstdlib>  // for getenv
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -28,6 +29,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/cpu.h>
+#include <libavutil/hwcontext.h>
 }
 
 namespace blustream {
@@ -293,18 +295,37 @@ private:
             return false;
         }
         
-        // Setup decoder options
+        // Setup decoder options with enhanced hardware decode support
         AVDictionary* opts = nullptr;
         bool hw_attempted = false;
         bool hw_success = false;
+        AVBufferRef* hw_device_ctx = nullptr;
         
         // 1. Enable frame threading (always beneficial)
         av_dict_set(&opts, "threads", "auto", 0);
         av_dict_set(&opts, "thread_type", "frame", 0);
         BLUSTREAM_LOG_INFO("[decode] Frame threading enabled: auto threads");
         
-        // 2. Hardware acceleration based on platform and config
-        if (config_.hw_decode != HardwareDecodeMode::OFF) {
+        // 2. Check environment variable for hardware decode override
+        HardwareDecodeMode effective_hw_mode = config_.hw_decode;
+        const char* env_hw_decode = getenv("HW_DECODE");
+        if (env_hw_decode) {
+            if (strcasecmp(env_hw_decode, "off") == 0) {
+                effective_hw_mode = HardwareDecodeMode::OFF;
+                BLUSTREAM_LOG_INFO("[decode] Environment variable HW_DECODE=off overrides config");
+            } else if (strcasecmp(env_hw_decode, "force") == 0) {
+                effective_hw_mode = HardwareDecodeMode::FORCE;
+                BLUSTREAM_LOG_INFO("[decode] Environment variable HW_DECODE=force overrides config");
+            } else if (strcasecmp(env_hw_decode, "auto") == 0) {
+                effective_hw_mode = HardwareDecodeMode::AUTO;
+                BLUSTREAM_LOG_INFO("[decode] Environment variable HW_DECODE=auto overrides config");
+            } else {
+                BLUSTREAM_LOG_WARN("[decode] Invalid HW_DECODE value: " + std::string(env_hw_decode) + " (using config default)");
+            }
+        }
+        
+        // 3. Hardware acceleration based on platform and effective config
+        if (effective_hw_mode != HardwareDecodeMode::OFF) {
             hw_attempted = true;
             
 #ifdef __APPLE__
@@ -318,9 +339,25 @@ private:
             av_dict_set(&opts, "hwaccel_output_format", "d3d11", 0);
             BLUSTREAM_LOG_INFO("[decode] Attempting hardware acceleration: D3D11VA");
 #elif defined(__linux__)
-            // Linux: Try VAAPI
-            av_dict_set(&opts, "hwaccel", "vaapi", 0);
-            av_dict_set(&opts, "hwaccel_output_format", "vaapi", 0);
+            // Linux: Enhanced VAAPI setup with device context
+            const char* vaapi_device = getenv("VAAPI_DEVICE");
+            if (!vaapi_device) {
+                vaapi_device = "/dev/dri/renderD128";
+            }
+            
+            int vaapi_ret = av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_VAAPI, 
+                                                   vaapi_device, nullptr, 0);
+            if (vaapi_ret >= 0) {
+                decoder_context_->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+                av_dict_set(&opts, "hwaccel", "vaapi", 0);
+                av_dict_set(&opts, "hwaccel_output_format", "vaapi", 0);
+                BLUSTREAM_LOG_INFO("[decode] VAAPI device context created: " + std::string(vaapi_device));
+            } else {
+                BLUSTREAM_LOG_WARN("[decode] Failed to create VAAPI device context: " + std::string(vaapi_device));
+                // Fallback to basic VAAPI without device context
+                av_dict_set(&opts, "hwaccel", "vaapi", 0);
+                av_dict_set(&opts, "hwaccel_output_format", "vaapi", 0);
+            }
             BLUSTREAM_LOG_INFO("[decode] Attempting hardware acceleration: VAAPI");
 #endif
         } else {
@@ -330,7 +367,7 @@ private:
         // Try to open decoder with hardware acceleration
         int ret = avcodec_open2(decoder_context_, codec, &opts);
         
-        if (ret < 0 && hw_attempted && config_.hw_decode == HardwareDecodeMode::AUTO) {
+        if (ret < 0 && hw_attempted && effective_hw_mode == HardwareDecodeMode::AUTO) {
             // Hardware failed, try software fallback
             BLUSTREAM_LOG_WARN("[decode] Hardware acceleration failed, falling back to software");
             
@@ -357,7 +394,7 @@ private:
         av_dict_free(&opts);
         
         if (ret < 0) {
-            if (config_.hw_decode == HardwareDecodeMode::FORCE) {
+            if (effective_hw_mode == HardwareDecodeMode::FORCE) {
                 BLUSTREAM_LOG_ERROR("[decode] Hardware decode forced but failed to initialize");
             } else {
                 BLUSTREAM_LOG_ERROR("[decode] Failed to open decoder (both HW and SW failed)");
@@ -404,7 +441,18 @@ private:
             return false;
         }
         
-        BLUSTREAM_LOG_INFO("✓ H.264 decoder initialized successfully");
+        // Set initial hardware decode state based on success
+        stats_.hw_decode_active = hw_success;
+        
+        // Cleanup VAAPI device context if we created one
+        if (hw_device_ctx) {
+            av_buffer_unref(&hw_device_ctx);
+        }
+        
+        std::string hw_status = hw_success ? "YES" : "NO";
+        std::string mode_status = effective_hw_mode == HardwareDecodeMode::AUTO ? "AUTO" :
+                                 effective_hw_mode == HardwareDecodeMode::FORCE ? "FORCE" : "OFF";
+        BLUSTREAM_LOG_INFO("[decode] Decoder initialized successfully (HW: " + hw_status + ", Mode: " + mode_status + ")");
         return true;
     }
     
