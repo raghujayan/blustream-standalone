@@ -455,10 +455,13 @@
                 <div class="control-item">
                     <label class="control-label">Colormap Type:</label>
                     <select id="colormap-select" style="width: 100%; padding: 5px; background: #333; color: #fff; border: 1px solid #555;">
-                        <option value="seismic">Seismic (Blue-White-Red)</option>
-                        <option value="grayscale">Grayscale</option>
-                        <option value="spectral">Spectral</option>
-                        <option value="viridis">Viridis</option>
+                        <option value="seismic">🌊 Seismic (Blue-White-Red)</option>
+                        <option value="geological">🏔️ Geological (Earth Tones)</option>
+                        <option value="amplitude">⚡ Amplitude (High Contrast)</option>
+                        <option value="horizon">📏 Horizon Tracking</option>
+                        <option value="grayscale">⚫ Grayscale</option>
+                        <option value="spectral">🌈 Spectral</option>
+                        <option value="viridis">🟢 Viridis</option>
                     </select>
                 </div>
                 
@@ -477,6 +480,7 @@
                         <option value="manual" selected>Manual Range</option>
                         <option value="percentile">Percentile Range (p2-p98)</option>
                         <option value="stddev">Standard Deviation (±2σ)</option>
+                        <option value="extreme">🔥 Extreme Contrast (p10-p90)</option>
                     </select>
                     <div style="margin-top: 8px; font-size: 0.8em; color: #888;">
                         Current: <span id="histogram-range-info">Manual</span>
@@ -1355,7 +1359,8 @@
                 histogramModeSelect.addEventListener('change', (e) => {
                     this.histogramMode = e.target.value;
                     histogramRangeInfo.textContent = this.histogramMode === 'manual' ? 'Manual' : 
-                        this.histogramMode === 'percentile' ? 'Auto p2-p98' : 'Auto ±2σ';
+                        this.histogramMode === 'percentile' ? 'Auto p2-p98' : 
+                        this.histogramMode === 'extreme' ? 'Extreme p10-p90' : 'Auto ±2σ';
                     console.log(`🔧 Histogram mode: ${this.histogramMode}`);
                     this.applyHistogramWindowing();
                 });
@@ -1395,6 +1400,23 @@
                         
                         console.log(`📊 Histogram p2-p98: ${min.toFixed(1)} to ${max.toFixed(1)}`);
                         return { min, max };
+                        
+                    case 'extreme':
+                        const sortedExtreme = data.slice().sort((a, b) => a - b);
+                        const p10Index = Math.floor(0.10 * n);
+                        const p90Index = Math.floor(0.90 * n);
+                        
+                        let minExtreme = sortedExtreme[Math.max(0, p10Index)];
+                        let maxExtreme = sortedExtreme[Math.min(n - 1, p90Index)];
+                        
+                        if (this.symmetricTransferFunction) {
+                            const maxAbs = Math.max(Math.abs(minExtreme), Math.abs(maxExtreme));
+                            minExtreme = -maxAbs;
+                            maxExtreme = maxAbs;
+                        }
+                        
+                        console.log(`🔥 Extreme contrast p10-p90: ${minExtreme.toFixed(1)} to ${maxExtreme.toFixed(1)}`);
+                        return { min: minExtreme, max: maxExtreme };
                         
                     case 'stddev':
                         const mean = data.reduce((sum, val) => sum + val, 0) / n;
@@ -1444,24 +1466,44 @@
             }
             
             updateSliceColormaps() {
-                if (!this.sliceActors || !this.currentData) return;
+                if (!this.sliceActors || !this.currentData) {
+                    console.log('❌ Cannot update colormaps: missing actors or data');
+                    return;
+                }
+                
+                console.log(`🎨 Updating colormaps with range: ${this.currentAmplitudeRange.min.toFixed(1)}-${this.currentAmplitudeRange.max.toFixed(1)}`);
                 
                 Object.entries(this.sliceActors).forEach(([sliceType, actor]) => {
                     if (actor && this.currentData[sliceType]) {
+                        console.log(`🔧 Updating ${sliceType} slice colormap`);
                         const mapper = actor.getMapper();
+                        if (!mapper) {
+                            console.log(`❌ No mapper for ${sliceType}`);
+                            return;
+                        }
+                        
                         const lookupTable = this.createColormap(
                             this.currentAmplitudeRange.min,
                             this.currentAmplitudeRange.max,
                             this.currentColormap
                         );
                         
-                        mapper.setLookupTable(lookupTable);
-                        mapper.setScalarRange(this.currentAmplitudeRange.min, this.currentAmplitudeRange.max);
+                        if (lookupTable) {
+                            mapper.setLookupTable(lookupTable);
+                            mapper.setScalarRange(this.currentAmplitudeRange.min, this.currentAmplitudeRange.max);
+                            console.log(`✅ Applied new range to ${sliceType}: ${this.currentAmplitudeRange.min.toFixed(1)}-${this.currentAmplitudeRange.max.toFixed(1)}`);
+                        } else {
+                            console.log(`❌ Failed to create lookup table for ${sliceType}`);
+                        }
                     }
                 });
                 
-                this.renderWindow.getRenderWindow().render();
-                console.log(`🎨 Updated colormaps: ${this.currentColormap} (${this.currentAmplitudeRange.min.toFixed(1)}-${this.currentAmplitudeRange.max.toFixed(1)})`);
+                if (this.renderWindow) {
+                    this.renderWindow.getRenderWindow().render();
+                    console.log('🎨 Rendered updated colormaps');
+                } else {
+                    console.log('❌ No render window available');
+                }
             }
             
             createColormap(minValue, maxValue, type) {
@@ -1502,6 +1544,39 @@
                         lookupTable.addRGBPoint(center, 0.0, 1.0, 0.0);
                         lookupTable.addRGBPoint(maxValue - range * 0.25, 1.0, 1.0, 0.0);
                         lookupTable.addRGBPoint(maxValue, 1.0, 0.0, 0.0);
+                        break;
+                        
+                    case 'geological':
+                        // Earth tones for geological interpretation - browns, oranges, yellows
+                        lookupTable.addRGBPoint(minValue, 0.1, 0.05, 0.0);       // Dark brown (low amplitude)
+                        lookupTable.addRGBPoint(minValue + range * 0.2, 0.4, 0.2, 0.1);   // Medium brown
+                        lookupTable.addRGBPoint(center - range * 0.1, 0.8, 0.6, 0.3);     // Light brown
+                        lookupTable.addRGBPoint(center, 1.0, 0.9, 0.7);                   // Cream (zero crossing)
+                        lookupTable.addRGBPoint(center + range * 0.1, 0.9, 0.7, 0.4);     // Gold
+                        lookupTable.addRGBPoint(maxValue - range * 0.2, 0.8, 0.4, 0.1);   // Orange
+                        lookupTable.addRGBPoint(maxValue, 0.6, 0.1, 0.0);        // Dark red-brown (high amplitude)
+                        break;
+                        
+                    case 'amplitude':
+                        // High contrast for amplitude analysis - black to white with colored extremes
+                        lookupTable.addRGBPoint(minValue, 0.0, 0.0, 0.5);        // Dark blue (very low)
+                        lookupTable.addRGBPoint(minValue + range * 0.1, 0.0, 0.0, 0.0);   // Black
+                        lookupTable.addRGBPoint(center - range * 0.3, 0.3, 0.3, 0.3);     // Dark gray
+                        lookupTable.addRGBPoint(center, 0.8, 0.8, 0.8);                   // Light gray (near zero)
+                        lookupTable.addRGBPoint(center + range * 0.3, 1.0, 1.0, 1.0);     // White
+                        lookupTable.addRGBPoint(maxValue - range * 0.1, 1.0, 1.0, 0.0);   // Yellow
+                        lookupTable.addRGBPoint(maxValue, 1.0, 0.0, 0.0);        // Red (very high)
+                        break;
+                        
+                    case 'horizon':
+                        // Optimized for horizon tracking - enhanced edge detection
+                        lookupTable.addRGBPoint(minValue, 0.0, 0.1, 0.3);        // Deep blue
+                        lookupTable.addRGBPoint(minValue + range * 0.15, 0.0, 0.3, 0.6);  // Blue
+                        lookupTable.addRGBPoint(center - range * 0.05, 0.2, 0.6, 0.9);    // Light blue
+                        lookupTable.addRGBPoint(center, 1.0, 1.0, 1.0);                   // White (horizon)
+                        lookupTable.addRGBPoint(center + range * 0.05, 0.9, 0.6, 0.2);    // Light orange
+                        lookupTable.addRGBPoint(maxValue - range * 0.15, 0.8, 0.3, 0.0);  // Orange
+                        lookupTable.addRGBPoint(maxValue, 0.5, 0.1, 0.0);        // Dark red
                         break;
                         
                     case 'viridis':
