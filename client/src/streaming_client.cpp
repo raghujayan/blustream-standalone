@@ -27,6 +27,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/cpu.h>
 }
 
 namespace blustream {
@@ -34,6 +35,12 @@ namespace client {
 
 class StreamingClient {
 public:
+    enum class HardwareDecodeMode {
+        AUTO,    // Attempt HW, fallback to SW if unsupported
+        OFF,     // Always use software (for debugging)
+        FORCE    // Fail if HW init fails
+    };
+
     struct Config {
         std::string server_ip = "127.0.0.1";
         int server_port = 8080;
@@ -41,6 +48,7 @@ public:
         std::string output_dir = "./frames";
         bool decode_frames = true;
         bool display_stats = true;
+        HardwareDecodeMode hw_decode = HardwareDecodeMode::AUTO;
     };
     
     StreamingClient() 
@@ -56,6 +64,9 @@ public:
         stats_.bytes_received = 0;
         stats_.decode_errors = 0;
         stats_.avg_decode_time_ms = 0;
+        stats_.hw_decode_frames = 0;
+        stats_.sw_decode_frames = 0;
+        stats_.hw_decode_active = false;
         stats_start_time_ = std::chrono::steady_clock::now();
     }
     
@@ -259,6 +270,9 @@ private:
         std::atomic<size_t> bytes_received;
         std::atomic<size_t> decode_errors;
         std::atomic<float> avg_decode_time_ms;
+        std::atomic<size_t> hw_decode_frames;  // Frames decoded using hardware
+        std::atomic<size_t> sw_decode_frames;  // Frames decoded using software
+        std::atomic<bool> hw_decode_active;    // Whether HW decode is currently active
     } stats_;
     std::chrono::steady_clock::time_point stats_start_time_;
     
@@ -279,13 +293,100 @@ private:
             return false;
         }
         
-        // Open decoder
-        if (avcodec_open2(decoder_context_, codec, nullptr) < 0) {
-            BLUSTREAM_LOG_ERROR("Failed to open decoder");
+        // Setup decoder options
+        AVDictionary* opts = nullptr;
+        bool hw_attempted = false;
+        bool hw_success = false;
+        
+        // 1. Enable frame threading (always beneficial)
+        av_dict_set(&opts, "threads", "auto", 0);
+        av_dict_set(&opts, "thread_type", "frame", 0);
+        BLUSTREAM_LOG_INFO("[decode] Frame threading enabled: auto threads");
+        
+        // 2. Hardware acceleration based on platform and config
+        if (config_.hw_decode != HardwareDecodeMode::OFF) {
+            hw_attempted = true;
+            
+#ifdef __APPLE__
+            // macOS: Try VideoToolbox
+            av_dict_set(&opts, "hwaccel", "videotoolbox", 0);
+            av_dict_set(&opts, "hwaccel_output_format", "videotoolbox_vld", 0);
+            BLUSTREAM_LOG_INFO("[decode] Attempting hardware acceleration: VideoToolbox");
+#elif defined(_WIN32)
+            // Windows: Try D3D11VA
+            av_dict_set(&opts, "hwaccel", "d3d11va", 0);
+            av_dict_set(&opts, "hwaccel_output_format", "d3d11", 0);
+            BLUSTREAM_LOG_INFO("[decode] Attempting hardware acceleration: D3D11VA");
+#elif defined(__linux__)
+            // Linux: Try VAAPI
+            av_dict_set(&opts, "hwaccel", "vaapi", 0);
+            av_dict_set(&opts, "hwaccel_output_format", "vaapi", 0);
+            BLUSTREAM_LOG_INFO("[decode] Attempting hardware acceleration: VAAPI");
+#endif
+        } else {
+            BLUSTREAM_LOG_INFO("[decode] Hardware acceleration disabled by config");
+        }
+        
+        // Try to open decoder with hardware acceleration
+        int ret = avcodec_open2(decoder_context_, codec, &opts);
+        
+        if (ret < 0 && hw_attempted && config_.hw_decode == HardwareDecodeMode::AUTO) {
+            // Hardware failed, try software fallback
+            BLUSTREAM_LOG_WARN("[decode] Hardware acceleration failed, falling back to software");
+            
+            // Clean up and try again without hardware acceleration
+            avcodec_free_context(&decoder_context_);
+            decoder_context_ = avcodec_alloc_context3(codec);
+            if (!decoder_context_) {
+                BLUSTREAM_LOG_ERROR("Failed to allocate decoder context for fallback");
+                av_dict_free(&opts);
+                return false;
+            }
+            
+            // Clear hardware options, keep threading
+            av_dict_free(&opts);
+            av_dict_set(&opts, "threads", "auto", 0);
+            av_dict_set(&opts, "thread_type", "frame", 0);
+            
+            ret = avcodec_open2(decoder_context_, codec, &opts);
+            hw_success = false;
+        } else if (ret >= 0 && hw_attempted) {
+            hw_success = true;
+        }
+        
+        av_dict_free(&opts);
+        
+        if (ret < 0) {
+            if (config_.hw_decode == HardwareDecodeMode::FORCE) {
+                BLUSTREAM_LOG_ERROR("[decode] Hardware decode forced but failed to initialize");
+            } else {
+                BLUSTREAM_LOG_ERROR("[decode] Failed to open decoder (both HW and SW failed)");
+            }
             avcodec_free_context(&decoder_context_);
             decoder_context_ = nullptr;
             return false;
         }
+        
+        // Log the chosen decode path
+        stats_.hw_decode_active = hw_success;
+        if (hw_success) {
+#ifdef __APPLE__
+            BLUSTREAM_LOG_INFO("[decode] ✓ Using hardware acceleration: VideoToolbox");
+#elif defined(_WIN32)
+            BLUSTREAM_LOG_INFO("[decode] ✓ Using hardware acceleration: D3D11VA");
+#elif defined(__linux__)
+            BLUSTREAM_LOG_INFO("[decode] ✓ Using hardware acceleration: VAAPI");
+#endif
+        } else {
+            BLUSTREAM_LOG_INFO("[decode] ✓ Using software decode");
+        }
+        
+        // Get thread count information
+        int thread_count = decoder_context_->thread_count;
+        if (thread_count <= 0) {
+            thread_count = av_cpu_count();
+        }
+        BLUSTREAM_LOG_INFO("[decode] Threading: " + std::to_string(thread_count) + " threads");
         
         // Allocate frame
         av_frame_ = av_frame_alloc();
@@ -303,7 +404,7 @@ private:
             return false;
         }
         
-        BLUSTREAM_LOG_INFO("✓ H.264 decoder initialized");
+        BLUSTREAM_LOG_INFO("✓ H.264 decoder initialized successfully");
         return true;
     }
     
@@ -364,7 +465,7 @@ private:
             }
             
             bytes = recv(socket_fd_, buffer.data(), header.payload_size, MSG_WAITALL);
-            if (bytes != header.payload_size) {
+            if (static_cast<uint32_t>(bytes) != header.payload_size) {
                 BLUSTREAM_LOG_ERROR("Failed to receive frame data");
                 break;
             }
@@ -416,6 +517,13 @@ private:
             // Receive decoded frame
             while (avcodec_receive_frame(decoder_context_, av_frame_) == 0) {
                 stats_.frames_decoded++;
+                
+                // Track hardware vs software decode statistics
+                if (stats_.hw_decode_active) {
+                    stats_.hw_decode_frames++;
+                } else {
+                    stats_.sw_decode_frames++;
+                }
                 
                 // Process decoded frame (convert to RGB, display, etc.)
                 process_decoded_frame(av_frame_);
@@ -493,11 +601,14 @@ private:
                 float fps = stats_.frames_received / duration;
                 float bitrate_mbps = (stats_.bytes_received * 8.0f) / (duration * 1000000.0f);
                 
+                std::string decode_mode = stats_.hw_decode_active ? "HW" : "SW";
+                
                 std::cout << "\r[STATS] FPS: " << std::fixed << std::setprecision(1) << fps
                          << " | Bitrate: " << bitrate_mbps << " Mbps"
                          << " | Frames: " << stats_.frames_received
-                         << " | Decoded: " << stats_.frames_decoded
+                         << " | Decoded: " << stats_.frames_decoded << " (" << decode_mode << ")"
                          << " | Decode: " << stats_.avg_decode_time_ms << " ms"
+                         << " | HW/SW: " << stats_.hw_decode_frames << "/" << stats_.sw_decode_frames
                          << " | Errors: " << stats_.decode_errors
                          << "    " << std::flush;
             }
@@ -530,6 +641,18 @@ int main(int argc, char* argv[]) {
             config.decode_frames = false;
         } else if (arg == "--no-stats") {
             config.display_stats = false;
+        } else if (arg == "--hw-decode" && i + 1 < argc) {
+            std::string mode = argv[++i];
+            if (mode == "auto") {
+                config.hw_decode = StreamingClient::HardwareDecodeMode::AUTO;
+            } else if (mode == "off") {
+                config.hw_decode = StreamingClient::HardwareDecodeMode::OFF;
+            } else if (mode == "force") {
+                config.hw_decode = StreamingClient::HardwareDecodeMode::FORCE;
+            } else {
+                std::cerr << "Invalid hw-decode mode: " << mode << ". Use auto|off|force\n";
+                return 1;
+            }
         } else if (arg == "--help") {
             std::cout << "Usage: " << argv[0] << " [options]\n"
                      << "Options:\n"
@@ -539,6 +662,10 @@ int main(int argc, char* argv[]) {
                      << "  --output-dir DIR  Output directory for frames (default: ./frames)\n"
                      << "  --no-decode       Don't decode frames\n"
                      << "  --no-stats        Don't display statistics\n"
+                     << "  --hw-decode MODE  Hardware decode mode: auto|off|force (default: auto)\n"
+                     << "                    auto: attempt HW, fallback to SW if unsupported\n"
+                     << "                    off: always use software decode\n"
+                     << "                    force: fail if HW decode init fails\n"
                      << "  --help            Show this help message\n";
             return 0;
         }
