@@ -1095,8 +1095,23 @@
                     
                     imageData.getPointData().setScalars(dataArray);
                     
-                    // Create optimized plane for seismic data - balance quality vs performance
-                    const resolution = Math.min(32, Math.min(width, height)); // Reduced for performance
+                    // Create plane with quality based on user setting and data size
+                    let resolution;
+                    switch (this.interpolationQuality) {
+                        case 'high':
+                            resolution = Math.min(128, Math.max(64, Math.min(width, height))); // High quality
+                            break;
+                        case 'medium':
+                            resolution = Math.min(64, Math.max(32, Math.min(width, height) / 2)); // Medium quality
+                            break;
+                        case 'low':
+                        default:
+                            resolution = Math.min(32, Math.max(16, Math.min(width, height) / 4)); // Low quality (fastest)
+                            break;
+                    }
+                    
+                    console.log(`🎨 Creating ${sliceType} plane with ${resolution}x${resolution} resolution (${this.interpolationQuality} quality)`);
+                    
                     const planeSource = vtk.Filters.Sources.vtkPlaneSource.newInstance({
                         xResolution: resolution, 
                         yResolution: resolution,
@@ -1613,9 +1628,11 @@
             }
             
             refreshSlicesWithQuality() {
-                // This would trigger a full refresh of slice data with new interpolation quality
                 console.log(`🔄 Refreshing slices with ${this.interpolationQuality} quality`);
-                // Implementation would recreate slice actors with different resolution settings
+                if (this.lastAmplitudeData) {
+                    // Recreate slices with new quality setting
+                    this.create3DSlices();
+                }
             }
             
             createSimpleGrayscaleLookupTable(minValue, maxValue) {
